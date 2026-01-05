@@ -2250,34 +2250,30 @@ app.use((err, req, res, next) => {
 // Serve static files from React app build directory (for production)
 const buildPath = path.join(__dirname, '../client/build');
 
-// 404 handler for unmatched API routes - MUST be after all API routes but before static file serving
-app.use((req, res, next) => {
-  // If this is an API route that wasn't handled by any route above, return 404
-  if (req.path.startsWith('/api/')) {
-    console.error('404 - API Route not found:', req.method, req.path);
-    return res.status(404).json({ 
-      error: 'Route not found',
-      path: req.path,
-      method: req.method
-    });
-  }
-  // Continue to next middleware for non-API routes
-  next();
-});
-
 // Serve static files and handle SPA routing (for production)
 if (fs.existsSync(buildPath)) {
+  console.log('Frontend build found at:', buildPath);
+  
   // Serve static files from build folder (CSS, JS, images, etc.)
+  // This MUST come before the SPA catch-all route
+  // Use fallthrough: true so that non-existent static files fall through to SPA handler
   app.use(express.static(buildPath, {
-    // Don't serve index.html for static files
-    index: false
+    // Don't automatically serve index.html - we'll handle that manually
+    index: false,
+    // Set proper cache headers for static assets
+    maxAge: '1y',
+    // Allow requests to fall through to next middleware if file not found
+    fallthrough: true
   }));
   
   // Handle all non-API routes - serve index.html for SPA routing
   // This MUST be the last route to catch all client-side routes
-  app.get('*', (req, res) => {
-    // Skip API routes (already handled above)
+  // Use app.all to handle all HTTP methods (GET, POST, etc.)
+  app.all('*', (req, res, next) => {
+    // Skip API routes - they should have been handled by route handlers above
     if (req.path.startsWith('/api/')) {
+      // If we get here, it's an unmatched API route
+      console.error('404 - API Route not found:', req.method, req.path);
       return res.status(404).json({ 
         error: 'Route not found',
         path: req.path,
@@ -2285,7 +2281,7 @@ if (fs.existsSync(buildPath)) {
       });
     }
     
-    // Skip uploads routes (handled by static middleware above)
+    // Skip uploads routes
     if (req.path.startsWith('/uploads/')) {
       return res.status(404).json({ 
         error: 'File not found',
@@ -2293,31 +2289,59 @@ if (fs.existsSync(buildPath)) {
       });
     }
     
-    // For all other routes (including /login, /dashboard, /academy, etc.), serve index.html
+    // For all other routes, serve index.html
+    // This includes:
+    // - Client-side routes like /login, /dashboard, /academy
+    // - Static file requests that don't exist (fallthrough from express.static)
     // React Router will handle the client-side routing
-    res.sendFile(path.join(buildPath, 'index.html'), (err) => {
+    
+    const indexPath = path.join(buildPath, 'index.html');
+    
+    // Check if index.html exists
+    if (!fs.existsSync(indexPath)) {
+      console.error('index.html not found at:', indexPath);
+      return res.status(500).json({ 
+        error: 'Frontend application not properly built',
+        path: req.path
+      });
+    }
+    
+    // Set proper headers
+    res.setHeader('Content-Type', 'text/html');
+    
+    res.sendFile(indexPath, (err) => {
       if (err) {
         console.error('Error serving index.html:', err);
-        res.status(500).json({ 
-          error: 'Failed to load application',
-          path: req.path
-        });
+        if (!res.headersSent) {
+          res.status(500).json({ 
+            error: 'Failed to load application',
+            path: req.path,
+            message: err.message
+          });
+        }
       }
     });
   });
 } else {
-  // If build doesn't exist, provide helpful error for non-API routes
-  app.get('*', (req, res) => {
+  console.warn('Frontend build not found at:', buildPath);
+  
+  // If build doesn't exist, handle routes appropriately
+  app.all('*', (req, res) => {
     if (req.path.startsWith('/api/')) {
+      // Unmatched API route
+      console.error('404 - API Route not found:', req.method, req.path);
       return res.status(404).json({ 
         error: 'Route not found',
         path: req.path,
         method: req.method
       });
     }
+    
+    // Non-API route but no build
     res.status(503).json({ 
       error: 'Frontend build not found. Please ensure the React app is built.',
-      path: req.path
+      path: req.path,
+      buildPath: buildPath
     });
   });
 }
