@@ -219,14 +219,8 @@ export const AuthProvider = ({ children }) => {
     setUser(null);
     disconnectSocket();
     // Use window.location for full page reload to clear all state
-    // But ensure we're going to the correct route
-    const currentPath = window.location.pathname;
-    if (currentPath !== '/login') {
-      window.location.href = '/login';
-    } else {
-      // If already on login, just reload
-      window.location.reload();
-    }
+    // Always redirect to /login - the server will serve index.html which React Router will handle
+    window.location.href = '/login';
   };
 
   const updateUser = (userData) => {

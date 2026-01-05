@@ -2249,48 +2249,78 @@ app.use((err, req, res, next) => {
 
 // Serve static files from React app build directory (for production)
 const buildPath = path.join(__dirname, '../client/build');
-if (fs.existsSync(buildPath)) {
-  // Serve static files from build folder
-  app.use(express.static(buildPath));
-  
-  // Serve React app for all non-API routes (client-side routing)
-  app.get('*', (req, res, next) => {
-    // Skip API routes
-    if (req.path.startsWith('/api/')) {
-      return next();
-    }
-    // Skip uploads and other static routes
-    if (req.path.startsWith('/uploads/')) {
-      return next();
-    }
-    // Serve index.html for all other routes
-    res.sendFile(path.join(buildPath, 'index.html'));
-  });
-}
 
-// 404 handler for API routes only
-app.use((req, res) => {
-  // Only handle API routes here - client routes should be handled above
+// 404 handler for unmatched API routes - MUST be after all API routes but before static file serving
+app.use((req, res, next) => {
+  // If this is an API route that wasn't handled by any route above, return 404
   if (req.path.startsWith('/api/')) {
     console.error('404 - API Route not found:', req.method, req.path);
-  res.status(404).json({ 
-    error: 'Route not found',
-    path: req.path,
-    method: req.method
-  });
-  } else {
-    // For non-API routes, if we get here, serve index.html (fallback)
-    if (fs.existsSync(buildPath)) {
-      res.sendFile(path.join(buildPath, 'index.html'));
-    } else {
-      res.status(404).json({ 
+    return res.status(404).json({ 
+      error: 'Route not found',
+      path: req.path,
+      method: req.method
+    });
+  }
+  // Continue to next middleware for non-API routes
+  next();
+});
+
+// Serve static files and handle SPA routing (for production)
+if (fs.existsSync(buildPath)) {
+  // Serve static files from build folder (CSS, JS, images, etc.)
+  app.use(express.static(buildPath, {
+    // Don't serve index.html for static files
+    index: false
+  }));
+  
+  // Handle all non-API routes - serve index.html for SPA routing
+  // This MUST be the last route to catch all client-side routes
+  app.get('*', (req, res) => {
+    // Skip API routes (already handled above)
+    if (req.path.startsWith('/api/')) {
+      return res.status(404).json({ 
         error: 'Route not found',
         path: req.path,
         method: req.method
       });
     }
-  }
-});
+    
+    // Skip uploads routes (handled by static middleware above)
+    if (req.path.startsWith('/uploads/')) {
+      return res.status(404).json({ 
+        error: 'File not found',
+        path: req.path
+      });
+    }
+    
+    // For all other routes (including /login, /dashboard, /academy, etc.), serve index.html
+    // React Router will handle the client-side routing
+    res.sendFile(path.join(buildPath, 'index.html'), (err) => {
+      if (err) {
+        console.error('Error serving index.html:', err);
+        res.status(500).json({ 
+          error: 'Failed to load application',
+          path: req.path
+        });
+      }
+    });
+  });
+} else {
+  // If build doesn't exist, provide helpful error for non-API routes
+  app.get('*', (req, res) => {
+    if (req.path.startsWith('/api/')) {
+      return res.status(404).json({ 
+        error: 'Route not found',
+        path: req.path,
+        method: req.method
+      });
+    }
+    res.status(503).json({ 
+      error: 'Frontend build not found. Please ensure the React app is built.',
+      path: req.path
+    });
+  });
+}
 
 // Start server
 async function startServer() {
