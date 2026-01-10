@@ -2,11 +2,15 @@
   min-height: 100vh;
   display: flex;
   flex-direction: column;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .app-layout {
   display: flex;
   min-height: 100vh;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .main-content-wrapper {
@@ -18,10 +22,14 @@
   transition: margin-left 0.3s ease;
   display: flex;
   flex-direction: column;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .main-content-wrapper > * {
   padding: 20px;
+  overflow-x: auto;
+  overflow-y: visible;
 }
 
 .sidebar.collapsed ~ .main-content-wrapper {

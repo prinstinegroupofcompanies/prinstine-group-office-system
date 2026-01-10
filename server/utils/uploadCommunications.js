@@ -21,27 +21,28 @@ const storage = multer.diskStorage({
   }
 });
 
-// File filter - allow common document and image types including PowerPoint
+// File filter - allow ALL document types (very permissive for communications)
 const fileFilter = (req, file, cb) => {
-  const allowedTypes = /jpeg|jpg|png|gif|pdf|doc|docx|xls|xlsx|ppt|pptx|txt|csv|zip|rar/;
-  const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
+  // Get file extension
+  const ext = path.extname(file.originalname).toLowerCase();
   
-  // More flexible mimetype check - allow if extension matches OR mimetype matches
-  const mimetype = /image\/(jpeg|jpg|png|gif)|application\/(pdf|msword|vnd\.openxmlformats-officedocument\.wordprocessingml\.document|vnd\.ms-excel|vnd\.openxmlformats-officedocument\.spreadsheetml\.sheet|vnd\.ms-powerpoint|vnd\.openxmlformats-officedocument\.presentationml\.presentation|zip|x-rar-compressed|octet-stream)|text\/(plain|csv)/.test(file.mimetype);
-
-  // Accept if extension matches OR mimetype matches (some browsers send application/octet-stream)
-  if (extname || mimetype) {
-    return cb(null, true);
-  } else {
-    cb(new Error('File type not allowed. Allowed types: Images (JPEG, PNG, GIF), Documents (PDF, DOC, DOCX, XLS, XLSX, PPT, PPTX, TXT, CSV), Archives (ZIP, RAR)'));
+  // Block only executable and script files for security
+  const blockedExtensions = ['.exe', '.bat', '.cmd', '.com', '.scr', '.vbs', '.js', '.jar', '.app', '.deb', '.rpm', '.msi', '.dmg', '.pkg', '.sh', '.ps1'];
+  
+  if (blockedExtensions.includes(ext)) {
+    return cb(new Error('Executable files are not allowed for security reasons'));
   }
+  
+  // Allow all other file types
+  // This includes: images, documents, archives, videos, audio, and any other file type
+  cb(null, true);
 };
 
 // Configure multer for communications
 const uploadCommunications = multer({
   storage: storage,
   limits: {
-    fileSize: 10 * 1024 * 1024 // 10MB limit
+    fileSize: 50 * 1024 * 1024 // 50MB limit (increased for larger documents)
   },
   fileFilter: fileFilter
 });

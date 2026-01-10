@@ -3,6 +3,7 @@ import api from '../../config/api';
 import { useAuth } from '../../hooks/useAuth';
 import { initSocket, getSocket } from '../../config/socket';
 import { handleAttachmentAction } from '../../utils/documentUtils';
+import RecipientSelector from '../../components/RecipientSelector';
 
 const Communications = () => {
   const { user } = useAuth();
@@ -19,22 +20,18 @@ const Communications = () => {
   const [showSendForm, setShowSendForm] = useState(false);
   const [sending, setSending] = useState(false);
   const [sendFormData, setSendFormData] = useState({
-    title: '',
+    subject: '',
     message: '',
-    type: 'info',
-    sendMode: 'role', // 'role' or 'user'
-    selectedRole: '',
-    selectedUserIds: []
+    type: 'info'
   });
+  const [selectedRecipients, setSelectedRecipients] = useState([]);
   const [sendAttachments, setSendAttachments] = useState([]);
   const [availableUsers, setAvailableUsers] = useState([]);
-  const [availableRoles, setAvailableRoles] = useState([]);
 
   useEffect(() => {
     fetchNotifications();
     if (user) {
       fetchAvailableUsers();
-      fetchAvailableRoles();
     }
     
     // Set up real-time socket connection
@@ -42,16 +39,13 @@ const Communications = () => {
       const socket = initSocket(user.id);
       
       socket.on('notification', (notification) => {
-        // Add new notification to the list
         setNotifications(prev => [notification, ...prev]);
-        // If viewing a thread and this is a reply, refresh thread
         if (selectedNotification && notification.parentId === selectedNotification.id) {
           fetchThread(selectedNotification.id);
         }
       });
 
       socket.on('notification_acknowledged', (data) => {
-        // Update notification if it's in the current view
         setNotifications(prev => prev.map(n => 
           n.id === data.notificationId 
             ? { ...n, is_acknowledged: 1, acknowledged_at: data.acknowledgedAt }
@@ -93,21 +87,10 @@ const Communications = () => {
     try {
       const response = await api.get('/notifications/users');
       const usersData = response.data?.users || response.data || [];
-      // All users can see all other users for communication
-      const filteredUsers = Array.isArray(usersData) ? usersData : [];
+      const filteredUsers = Array.isArray(usersData) ? usersData.filter(u => u.id !== user?.id) : [];
       setAvailableUsers(filteredUsers);
     } catch (error) {
       console.error('Error fetching users:', error);
-    }
-  };
-
-  const fetchAvailableRoles = async () => {
-    try {
-      const response = await api.get('/notifications/roles');
-      const rolesData = response.data?.roles || response.data || [];
-      setAvailableRoles(Array.isArray(rolesData) ? rolesData : []);
-    } catch (error) {
-      console.error('Error fetching roles:', error);
     }
   };
 
@@ -129,18 +112,13 @@ const Communications = () => {
 
   const handleSendSubmit = async (e) => {
     e.preventDefault();
-    if (!sendFormData.title.trim() || !sendFormData.message.trim()) {
-      setError('Please fill in all required fields');
+    if (!sendFormData.subject.trim() || !sendFormData.message.trim()) {
+      setError('Please fill in subject and message');
       return;
     }
 
-    if (sendFormData.sendMode === 'role' && !sendFormData.selectedRole) {
-      setError('Please select a role');
-      return;
-    }
-
-    if (sendFormData.sendMode === 'user' && sendFormData.selectedUserIds.length === 0) {
-      setError('Please select at least one user');
+    if (selectedRecipients.length === 0) {
+      setError('Please select at least one recipient');
       return;
     }
 
@@ -149,20 +127,12 @@ const Communications = () => {
     
     try {
       const formData = new FormData();
-      formData.append('title', sendFormData.title);
+      formData.append('title', sendFormData.subject);
       formData.append('message', sendFormData.message);
       formData.append('type', sendFormData.type);
       
-      if (sendFormData.sendMode === 'role') {
-        formData.append('role', sendFormData.selectedRole);
-      } else {
-        // Ensure selectedUserIds is an array of numbers
-        const userIds = Array.isArray(sendFormData.selectedUserIds) 
-          ? sendFormData.selectedUserIds.map(id => parseInt(id)).filter(id => !isNaN(id))
-          : [];
-        console.log('[Communications] Sending to userIds:', userIds);
-        formData.append('userIds', JSON.stringify(userIds));
-      }
+      const userIds = selectedRecipients.map(r => r.id);
+      formData.append('userIds', JSON.stringify(userIds));
 
       // Add attachments
       sendAttachments.forEach(att => {
@@ -173,16 +143,12 @@ const Communications = () => {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
       
-      console.log('[Communications] Send response:', response.data);
-      
       setSendFormData({
-        title: '',
+        subject: '',
         message: '',
-        type: 'info',
-        sendMode: 'role',
-        selectedRole: '',
-        selectedUserIds: []
+        type: 'info'
       });
+      setSelectedRecipients([]);
       setSendAttachments([]);
       setShowSendForm(false);
       setSuccess(response.data?.message || 'Communication sent successfully');
@@ -190,7 +156,6 @@ const Communications = () => {
       fetchNotifications();
     } catch (error) {
       console.error('[Communications] Error sending communication:', error);
-      console.error('[Communications] Error response:', error.response?.data);
       const errorMessage = error.response?.data?.error 
         || error.response?.data?.message 
         || (error.response?.data?.errors && error.response.data.errors.map(e => e.msg).join(', '))
@@ -205,7 +170,6 @@ const Communications = () => {
     setSelectedNotification(notification);
     await fetchThread(notification.id);
     
-    // Mark as read if not already read
     if (!notification.is_read) {
       try {
         await api.put(`/notifications/${notification.id}/read`);
@@ -268,7 +232,6 @@ const Communications = () => {
       formData.append('message', replyMessage);
       formData.append('type', 'info');
       
-      // Add attachments
       replyAttachments.forEach(att => {
         formData.append('attachments', att.file);
       });
@@ -282,7 +245,6 @@ const Communications = () => {
       setSuccess('Reply sent successfully');
       setTimeout(() => setSuccess(''), 3000);
       
-      // Refresh thread
       await fetchThread(selectedNotification.id);
       await fetchNotifications();
     } catch (error) {
@@ -315,8 +277,8 @@ const Communications = () => {
   };
 
   return (
-    <div className="container-fluid">
-      <div className="row mb-4">
+    <div className="container-fluid" style={{ height: 'calc(100vh - 120px)', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+      <div className="row mb-3">
         <div className="col-12 d-flex justify-content-between align-items-center">
           <div>
             <h1 className="h3 mb-0">Communications</h1>
@@ -327,67 +289,91 @@ const Communications = () => {
             onClick={() => setShowSendForm(!showSendForm)}
           >
             <i className="bi bi-plus-circle me-2"></i>
-            {showSendForm ? 'Cancel' : 'Send New Communication'}
+            {showSendForm ? 'Cancel' : 'Compose'}
           </button>
         </div>
       </div>
 
-      {/* Send New Communication Form */}
+      {error && (
+        <div className="alert alert-danger alert-dismissible fade show" role="alert">
+          {error}
+          <button type="button" className="btn-close" onClick={() => setError('')}></button>
+        </div>
+      )}
+
+      {success && (
+        <div className="alert alert-success alert-dismissible fade show" role="alert">
+          {success}
+          <button type="button" className="btn-close" onClick={() => setSuccess('')}></button>
+        </div>
+      )}
+
+      {/* Gmail-like Compose Form */}
       {showSendForm && (
-        <div className="card mb-4">
-          <div className="card-header">
-            <h5 className="mb-0">Send New Communication</h5>
+        <div className="card mb-3 shadow-lg" style={{ zIndex: 1000 }}>
+          <div className="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+            <h5 className="mb-0">New Message</h5>
+            <button
+              type="button"
+              className="btn-close btn-close-white"
+              onClick={() => {
+                setShowSendForm(false);
+                setSendFormData({ subject: '', message: '', type: 'info' });
+                setSelectedRecipients([]);
+                setSendAttachments([]);
+              }}
+            ></button>
           </div>
           <div className="card-body">
             <form onSubmit={handleSendSubmit}>
-              <div className="row">
-                <div className="col-md-6 mb-3">
-                  <label className="form-label">Title *</label>
-                  <input
-                    type="text"
-                    className="form-control"
-                    value={sendFormData.title}
-                    onChange={(e) => setSendFormData(prev => ({ ...prev, title: e.target.value }))}
-                    required
-                  />
-                </div>
-                <div className="col-md-6 mb-3">
-                  <label className="form-label">Type</label>
-                  <select
-                    className="form-select"
-                    value={sendFormData.type}
-                    onChange={(e) => setSendFormData(prev => ({ ...prev, type: e.target.value }))}
-                  >
-                    <option value="info">Info</option>
-                    <option value="success">Success</option>
-                    <option value="warning">Warning</option>
-                    <option value="error">Error</option>
-                  </select>
-                </div>
-              </div>
-              
               <div className="mb-3">
-                <label className="form-label">Message *</label>
-                <textarea
+                <RecipientSelector
+                  users={availableUsers}
+                  selectedRecipients={selectedRecipients}
+                  onRecipientsChange={setSelectedRecipients}
+                  placeholder="To: Type name or email..."
+                />
+              </div>
+
+              <div className="mb-3">
+                <label className="form-label fw-bold">Subject</label>
+                <input
+                  type="text"
                   className="form-control"
-                  rows="4"
-                  value={sendFormData.message}
-                  onChange={(e) => setSendFormData(prev => ({ ...prev, message: e.target.value }))}
+                  value={sendFormData.subject}
+                  onChange={(e) => setSendFormData(prev => ({ ...prev, subject: e.target.value }))}
+                  placeholder="Subject"
                   required
                 />
               </div>
 
               <div className="mb-3">
-                <label className="form-label">Attachments (Optional)</label>
+                <label className="form-label fw-bold">Message</label>
+                <textarea
+                  className="form-control"
+                  rows="8"
+                  value={sendFormData.message}
+                  onChange={(e) => setSendFormData(prev => ({ ...prev, message: e.target.value }))}
+                  placeholder="Compose your message..."
+                  required
+                />
+              </div>
+
+              <div className="mb-3">
+                <label className="form-label">
+                  <i className="bi bi-paperclip me-2"></i>
+                  Attachments (Optional)
+                </label>
                 <input
                   type="file"
                   className="form-control"
                   multiple
                   onChange={(e) => handleSendFileUpload(e.target.files)}
                   disabled={sending}
+                  accept="*/*"
                 />
                 <small className="text-muted">
-                  Allowed: Images, Documents, Archives. Max 10MB per file.
+                  All file types accepted. Max 50MB per file.
                 </small>
                 {sendAttachments.length > 0 && (
                   <div className="mt-2">
@@ -407,80 +393,6 @@ const Communications = () => {
                 )}
               </div>
 
-              <div className="mb-3">
-                <label className="form-label">Send To</label>
-                <div className="btn-group w-100" role="group">
-                  <input
-                    type="radio"
-                    className="btn-check"
-                    name="sendMode"
-                    id="sendModeRole"
-                    value="role"
-                    checked={sendFormData.sendMode === 'role'}
-                    onChange={(e) => setSendFormData(prev => ({ ...prev, sendMode: e.target.value }))}
-                  />
-                  <label className="btn btn-outline-primary" htmlFor="sendModeRole">
-                    By Role
-                  </label>
-                  
-                  <input
-                    type="radio"
-                    className="btn-check"
-                    name="sendMode"
-                    id="sendModeUser"
-                    value="user"
-                    checked={sendFormData.sendMode === 'user'}
-                    onChange={(e) => setSendFormData(prev => ({ ...prev, sendMode: e.target.value }))}
-                  />
-                  <label className="btn btn-outline-primary" htmlFor="sendModeUser">
-                    Specific Users
-                  </label>
-                </div>
-              </div>
-
-              {sendFormData.sendMode === 'role' && (
-                <div className="mb-3">
-                  <label className="form-label">Select Role *</label>
-                  <select
-                    className="form-select"
-                    value={sendFormData.selectedRole}
-                    onChange={(e) => setSendFormData(prev => ({ ...prev, selectedRole: e.target.value }))}
-                    required
-                  >
-                    <option value="">Select a role...</option>
-                    {availableRoles.map(role => (
-                      <option key={role} value={role}>{role}</option>
-                    ))}
-                  </select>
-                </div>
-              )}
-
-              {sendFormData.sendMode === 'user' && (
-                <div className="mb-3">
-                  <label className="form-label">Select Users *</label>
-                  <select
-                    className="form-select"
-                    multiple
-                    size="5"
-                    value={sendFormData.selectedUserIds.map(String)}
-                    onChange={(e) => {
-                      const selected = Array.from(e.target.selectedOptions, option => parseInt(option.value));
-                      setSendFormData(prev => ({ ...prev, selectedUserIds: selected }));
-                    }}
-                    required
-                  >
-                    {availableUsers.map(user => (
-                      <option key={user.id} value={user.id}>
-                        {user.name} ({user.email}) - {user.role}
-                      </option>
-                    ))}
-                  </select>
-                  <small className="text-muted d-block mt-1">
-                    Hold Ctrl/Cmd (Windows/Linux) or Cmd (Mac) to select multiple users
-                  </small>
-                </div>
-              )}
-
               <div className="d-flex gap-2">
                 <button
                   type="submit"
@@ -495,7 +407,7 @@ const Communications = () => {
                   ) : (
                     <>
                       <i className="bi bi-send me-2"></i>
-                      Send Communication
+                      Send
                     </>
                   )}
                 </button>
@@ -504,14 +416,8 @@ const Communications = () => {
                   className="btn btn-secondary"
                   onClick={() => {
                     setShowSendForm(false);
-                    setSendFormData({
-                      title: '',
-                      message: '',
-                      type: 'info',
-                      sendMode: 'role',
-                      selectedRole: '',
-                      selectedUserIds: []
-                    });
+                    setSendFormData({ subject: '', message: '', type: 'info' });
+                    setSelectedRecipients([]);
                     setSendAttachments([]);
                   }}
                 >
@@ -523,28 +429,14 @@ const Communications = () => {
         </div>
       )}
 
-      {error && (
-        <div className="alert alert-danger alert-dismissible fade show" role="alert">
-          {error}
-          <button type="button" className="btn-close" onClick={() => setError('')}></button>
-        </div>
-      )}
-
-      {success && (
-        <div className="alert alert-success alert-dismissible fade show" role="alert">
-          {success}
-          <button type="button" className="btn-close" onClick={() => setSuccess('')}></button>
-        </div>
-      )}
-
-      <div className="row">
+      <div className="row flex-grow-1" style={{ overflow: 'hidden' }}>
         {/* Notifications List */}
-        <div className="col-md-4">
-          <div className="card">
+        <div className="col-md-4 d-flex flex-column" style={{ overflow: 'hidden' }}>
+          <div className="card flex-grow-1 d-flex flex-column">
             <div className="card-header">
               <h5 className="mb-0">Inbox</h5>
             </div>
-            <div className="card-body p-0" style={{ maxHeight: '70vh', overflowY: 'auto' }}>
+            <div className="card-body p-0 flex-grow-1" style={{ overflowY: 'auto' }}>
               {loading ? (
                 <div className="text-center p-4">
                   <div className="spinner-border" role="status">
@@ -602,9 +494,9 @@ const Communications = () => {
         </div>
 
         {/* Thread View */}
-        <div className="col-md-8">
+        <div className="col-md-8 d-flex flex-column" style={{ overflow: 'hidden' }}>
           {selectedNotification && thread ? (
-            <div className="card">
+            <div className="card flex-grow-1 d-flex flex-column">
               <div className="card-header d-flex justify-content-between align-items-center">
                 <div>
                   <h5 className="mb-0">{thread.title}</h5>
@@ -630,7 +522,7 @@ const Communications = () => {
                   )}
                 </div>
               </div>
-              <div className="card-body" style={{ maxHeight: '50vh', overflowY: 'auto' }}>
+              <div className="card-body flex-grow-1" style={{ overflowY: 'auto' }}>
                 {/* Original Message */}
                 <div className="mb-4 pb-3 border-bottom">
                   <div className="d-flex justify-content-between mb-2">
@@ -639,7 +531,7 @@ const Communications = () => {
                     </span>
                     <small className="text-muted">{formatDate(thread.created_at)}</small>
                   </div>
-                  <p className="mb-2">{thread.message}</p>
+                  <p className="mb-2" style={{ whiteSpace: 'pre-wrap' }}>{thread.message}</p>
                   
                   {/* Attachments */}
                   {thread.attachments && thread.attachments.length > 0 && (
@@ -654,7 +546,7 @@ const Communications = () => {
                               onClick={() => handleAttachmentAction(att, 'view')}
                             >
                               <i className="bi bi-paperclip me-2"></i>
-                              {att.filename} ({formatFileSize(att.size)})
+                              {att.filename || att.url} {att.size && `(${formatFileSize(att.size)})`}
                             </span>
                             <div className="btn-group btn-group-sm">
                               <button
@@ -699,7 +591,7 @@ const Communications = () => {
                           </div>
                           <small className="text-muted">{formatDate(reply.created_at)}</small>
                         </div>
-                        <p className="mb-2">{reply.message}</p>
+                        <p className="mb-2" style={{ whiteSpace: 'pre-wrap' }}>{reply.message}</p>
                         
                         {/* Reply Attachments */}
                         {reply.attachments && reply.attachments.length > 0 && (
@@ -714,26 +606,26 @@ const Communications = () => {
                                     onClick={() => handleAttachmentAction(att, 'view')}
                                   >
                                     <i className="bi bi-paperclip me-2"></i>
-                                    {att.filename} ({formatFileSize(att.size)})
+                                    {att.filename || att.url} {att.size && `(${formatFileSize(att.size)})`}
                                   </span>
                                   <div className="btn-group btn-group-sm">
                                     <button
-                                className="btn btn-outline-info btn-sm"
-                                onClick={() => handleAttachmentAction(att, 'view')}
+                                      className="btn btn-outline-info btn-sm"
+                                      onClick={() => handleAttachmentAction(att, 'view')}
                                       title="View"
                                     >
                                       <i className="bi bi-eye"></i>
                                     </button>
-                              <button
-                                className="btn btn-outline-primary btn-sm"
-                                onClick={() => handleAttachmentAction(att, 'download')}
-                                title="Download"
-                              >
-                                <i className="bi bi-download"></i>
-                              </button>
+                                    <button
+                                      className="btn btn-outline-primary btn-sm"
+                                      onClick={() => handleAttachmentAction(att, 'download')}
+                                      title="Download"
+                                    >
+                                      <i className="bi bi-download"></i>
+                                    </button>
                                     <button
                                       className="btn btn-outline-secondary btn-sm"
-                                onClick={() => handleAttachmentAction(att, 'print')}
+                                      onClick={() => handleAttachmentAction(att, 'print')}
                                       title="Print"
                                     >
                                       <i className="bi bi-printer"></i>
@@ -772,9 +664,10 @@ const Communications = () => {
                         multiple
                         onChange={(e) => handleReplyFileUpload(e.target.files)}
                         disabled={uploading}
+                        accept="*/*"
                       />
                       <small className="text-muted">
-                        Allowed: Images, Documents, Archives. Max 10MB per file.
+                        All file types accepted. Max 50MB per file.
                       </small>
                       {replyAttachments.length > 0 && (
                         <div className="mt-2">
@@ -816,8 +709,8 @@ const Communications = () => {
               </div>
             </div>
           ) : (
-            <div className="card">
-              <div className="card-body text-center text-muted p-5">
+            <div className="card flex-grow-1 d-flex align-items-center justify-content-center">
+              <div className="text-center text-muted p-5">
                 <i className="bi bi-chat-left-text fs-1 d-block mb-3"></i>
                 <p>Select a communication to view details and reply</p>
               </div>
@@ -830,4 +723,3 @@ const Communications = () => {
 };
 
 export default Communications;
-

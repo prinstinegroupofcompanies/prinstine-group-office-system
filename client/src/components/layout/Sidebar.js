@@ -120,7 +120,8 @@ const Sidebar = () => {
 
   const handleLogout = () => {
     logout();
-    navigate('/login');
+    // Use window.location to ensure proper navigation and avoid 404 errors
+    window.location.href = '/login';
   };
 
   const isActive = (path) => location.pathname === path;

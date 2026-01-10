@@ -13,6 +13,12 @@
   box-sizing: border-box;
 }
 
+html, body {
+  height: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
     'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
@@ -104,4 +110,35 @@ code {
 
 @keyframes spin {
   to { transform: rotate(360deg); }
+}
+
+/* Global scrolling fixes */
+.container-fluid, .container {
+  overflow-x: auto;
+  overflow-y: visible;
+}
+
+.card-body {
+  overflow-x: auto;
+  overflow-y: visible;
+}
+
+/* Ensure tables are scrollable */
+.table-responsive {
+  overflow-x: auto;
+  overflow-y: visible;
+}
+
+/* Ensure modals are scrollable */
+.modal-body {
+  overflow-y: auto;
+  overflow-x: hidden;
+  max-height: calc(100vh - 200px);
+}
+
+/* Ensure all pages can scroll */
+.page-content {
+  overflow-x: hidden;
+  overflow-y: auto;
+  min-height: calc(100vh - 120px);
 }
