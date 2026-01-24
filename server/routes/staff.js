@@ -12,8 +12,8 @@ function generateStaffId() {
   return 'STF-' + Date.now().toString().slice(-8) + '-' + crypto.randomBytes(2).toString('hex').toUpperCase();
 }
 
-// Get all staff (Admin can see all, Staff can see their own)
-router.get('/', authenticateToken, async (req, res) => {
+// Get all staff (Admin and Human Resources Department Head can see all, Staff can see their own)
+router.get('/', authenticateToken, requireRole(['Admin', 'HumanResourcesDepartmentHead']), async (req, res) => {
   try {
     const { department, employment_type, search } = req.query;
     let query = `
@@ -39,7 +39,7 @@ router.get('/', authenticateToken, async (req, res) => {
     }
 
     // DepartmentHead can only see staff from their department
-    if (req.user.role === 'DepartmentHead') {
+    if (req.user.role === 'HumanResourcesDepartmentHead') {
       // Check if head_email column exists
       const deptTableInfo = await db.all("PRAGMA table_info(departments)");
       const deptColumnNames = deptTableInfo.map(col => col.name);
@@ -60,22 +60,15 @@ router.get('/', authenticateToken, async (req, res) => {
         );
       }
       
-      // Check if this is Finance Head - they can see all staff and department heads
-      if (dept && dept.name.toLowerCase().includes('finance')) {
-        // Finance Head can see all staff and department heads
-        // We'll add department heads after the main query
-      } else if (dept) {
+      if (dept) {
         query += ' AND s.department = ?';
         params.push(dept.name);
-      } else {
-        // No department found, return empty
-        return res.json({ staff: [] });
       }
     } else if (req.user.role === 'Staff') {
       // Staff can only see their own staff record
       query += ' AND s.user_id = ?';
       params.push(req.user.id);
-    } else if (req.user.role !== 'Admin') {
+    } else if (req.user.role !== 'Admin' && req.user.role !== 'HumanResourcesDepartmentHead' && req.user.role !== 'DepartmentHead' && req.user.role !== 'Staff') {
       // Other roles cannot access
       return res.status(403).json({ error: 'Insufficient permissions' });
     }
@@ -86,10 +79,10 @@ router.get('/', authenticateToken, async (req, res) => {
     
     // If Admin or Finance Head, also include Department Heads and Admin users who don't have staff records
     if (req.user.role === 'Admin' || 
-        (req.user.role === 'DepartmentHead' && 
-         req.user.email && req.user.email.toLowerCase().includes('finance'))) {
+        (req.user.role === 'HumanResourcesDepartmentHead' && 
+         req.user.email && req.user.email.toLowerCase().includes('human resources'))) {
       try {
-        // Include Department Heads who don't have staff records
+        // Include Human Resources Department Heads who don't have staff records
         const deptHeadsQuery = `
           SELECT 
             NULL as id,
@@ -113,34 +106,19 @@ router.get('/', authenticateToken, async (req, res) => {
             u.is_active
           FROM users u
           LEFT JOIN departments d ON (d.manager_id = u.id OR LOWER(TRIM(d.head_email)) = LOWER(TRIM(u.email)))
-          WHERE u.role = 'DepartmentHead'
+          WHERE u.role = 'HumanResourcesDepartmentHead'
           AND NOT EXISTS (SELECT 1 FROM staff s WHERE s.user_id = u.id)
         `;
         const deptHeads = await db.all(deptHeadsQuery);
         staff.push(...deptHeads);
         
-        // Also include Admin users who don't have staff records
+        // Also include Admin users who don't have staff records (Admin and Human Resources Department Head can see all staff)
         const adminUsersQuery = `
           SELECT 
             NULL as id,
-            u.id as user_id,
-            'ADMIN-' || u.id as staff_id,
-            'Full-time' as employment_type,
-            'Administrator' as position,
-            'Administration' as department,
-            NULL as employment_date,
-            NULL as base_salary,
-            NULL as bonus_structure,
-            NULL as emergency_contact_name,
-            NULL as emergency_contact_phone,
-            NULL as address,
-            u.created_at as created_at,
-            u.updated_at as updated_at,
+            u.id as user_id,  
             u.name,
             u.email,
-            u.phone,
-            u.profile_image,
-            u.is_active
           FROM users u
           WHERE u.role = 'Admin'
           AND NOT EXISTS (SELECT 1 FROM staff s WHERE s.user_id = u.id)
@@ -148,25 +126,25 @@ router.get('/', authenticateToken, async (req, res) => {
         const adminUsers = await db.all(adminUsersQuery);
         staff.push(...adminUsers);
       } catch (error) {
-        console.error('Error fetching department heads and admin users:', error);
-        // Continue without department heads/admin if there's an error
+        console.error('Error fetching Human Resources Department Heads and Admin users:', error);
+         // Continue without Human Resources Department Heads and Admin users if there's an error
       }
     }
     
     res.json({ staff });
   } catch (error) {
     console.error('Get staff error:', error);
-    // Handle missing table gracefully
+    // Handle missing staff table if it doesn't exist yet
     if (error.message && error.message.includes('no such table')) {
-      console.warn('staff table does not exist yet');
+      console.warn('Staff table does not exist yet');
       return res.json({ staff: [] });
     }
-    res.status(500).json({ error: 'Failed to fetch staff' });
+    res.status(500).json({ error: 'Failed to fetch staff members' });
   }
 });
 
 // Get single staff member
-router.get('/:id', authenticateToken, async (req, res) => {
+router.get('/:id', authenticateToken, requireRole(['Admin', 'HumanResourcesDepartmentHead']), async (req, res) => {
   try {
     const staffId = req.params.id;
 
@@ -179,82 +157,57 @@ router.get('/:id', authenticateToken, async (req, res) => {
     );
 
     if (!staff) {
-      return res.status(404).json({ error: 'Staff member not found' });
+      return res.status(404).json({ error: 'Staff member information not found' });
     }
 
-    // Check permissions - Admin can see all, Staff can see themselves
-    if (req.user.role !== 'Admin' && staff.user_id !== req.user.id) {
-      return res.status(403).json({ error: 'Insufficient permissions' });
+    // Check permissions - Admin and Human Resources Department Head can see all, Staff can see themselves
+    if (req.user.role !== 'Admin' && req.user.role !== 'HumanResourcesDepartmentHead' && staff.user_id !== req.user.id && (req.user.role !== 'DepartmentHead' || staff.department !== req.user.department)) {
+      return res.status(403).json({ error: 'You do not have permission to view this staff member information. Only Admin and Human Resources Department Head can view all staff member information, and Department Head can view their own department\'s staff member information.' });
     }
 
     res.json({ staff });
   } catch (error) {
-    console.error('Get staff error:', error);
-    // Handle missing table gracefully
+    console.error('Get staff member error:', error);
+    // Handle missing staff table if it doesn't exist yet
     if (error.message && error.message.includes('no such table')) {
-      console.warn('staff table does not exist yet');
-      return res.status(404).json({ error: 'Staff member not found' });
+      console.warn('Staff table does not exist yet');
+      return res.json({ staff: [] });
     }
-    res.status(500).json({ error: 'Failed to fetch staff member' });
+    res.status(500).json({ error: 'Failed to fetch staff member information. Staff table does not exist yet.' });
   }
 });
 
-// Create staff member (Admin only)
-router.post('/', authenticateToken, requireRole('Admin'), [
+// Create staff member (Admin and Human Resources Department Head only)
+router.post('/', authenticateToken, requireRole(['Admin', 'HumanResourcesDepartmentHead']), [
   body('email').isEmail().normalizeEmail(),
   body('name').trim().notEmpty(),
-  body('employment_type').isIn(['Full-time', 'Part-time', 'Internship']),
-  body('position').trim().notEmpty(),
-  body('department').trim().notEmpty(),
-  body('base_salary')
-    .optional({ nullable: true, checkFalsy: true })
-    .custom((value) => {
-      if (value === '' || value === null || value === undefined) {
-        return true; // Allow empty values
-      }
-      const num = parseFloat(value);
-      return !isNaN(num) && num >= 0;
-    })
-    .withMessage('Base salary must be a valid number >= 0')
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      console.error('Validation errors:', errors.array());
+      console.error('Validation errors for creating staff member information:', errors.array());
       return res.status(400).json({ 
-        error: 'Validation failed',
+        error: 'Validation failed for creating staff member information. Please check the required fields and try again.',
         errors: errors.array() 
       });
     }
 
     const {
-      email, name, username, phone, employment_type, position, department,
-      employment_date, base_salary, bonus_structure, emergency_contact_name,
-      emergency_contact_phone, address, password, profile_image,
-      // New comprehensive fields
-      date_of_birth, place_of_birth, nationality, gender, marital_status,
-      national_id, tax_id, bank_name, bank_account_number, bank_branch,
-      next_of_kin_name, next_of_kin_relationship, next_of_kin_phone, next_of_kin_address,
-      qualifications, previous_employment, references, notes
+      email, name, username, phone, profile_image, password
     } = req.body;
-
-    // Convert base_salary to number if it's a string, or null if empty
-    const baseSalaryValue = base_salary === '' || base_salary === null || base_salary === undefined 
-      ? null 
-      : parseFloat(base_salary);
 
     // Check if user exists
     const existingUser = await db.get('SELECT id FROM users WHERE email = ?', [email]);
     if (existingUser) {
-      return res.status(400).json({ error: 'User with this email already exists' });
+      return res.status(400).json({ error: 'A staff member with this email already exists. Please use a different email address.' });
     }
 
     // Password is required when creating staff (admin creates it)
     if (!password) {
-      return res.status(400).json({ error: 'Password is required. Admin must create a password for staff login.' });
+      return res.status(400).json({ error: 'Password is required. Admin or Human Resources Department Head can create a password for staff login. Please provide a password.' });
     }
-    const passwordHash = await hashPassword(password);
-
+    const passwordHash = await hashPassword(password); // Hash the password
+    
     // Create user
     const userResult = await db.run(
       `INSERT INTO users (email, username, password_hash, role, name, phone, profile_image, is_active, email_verified)
@@ -265,71 +218,6 @@ router.post('/', authenticateToken, requireRole('Admin'), [
     // Generate staff ID
     const staffId = generateStaffId();
 
-    // Parse JSON fields if they're strings
-    let qualificationsData = qualifications;
-    let previousEmploymentData = previous_employment;
-    let referencesData = references;
-    
-    if (typeof qualifications === 'string' && qualifications.trim()) {
-      try {
-        qualificationsData = qualifications.trim().startsWith('[') 
-          ? qualifications 
-          : JSON.stringify(qualifications.split(',').map(q => q.trim()));
-      } catch (e) {
-        qualificationsData = JSON.stringify([qualifications]);
-      }
-    } else if (!qualificationsData) {
-      qualificationsData = null;
-    }
-    
-    if (typeof previous_employment === 'string' && previous_employment.trim()) {
-      try {
-        previousEmploymentData = previous_employment.trim().startsWith('[')
-          ? previous_employment
-          : JSON.stringify(previous_employment.split(',').map(e => e.trim()));
-      } catch (e) {
-        previousEmploymentData = JSON.stringify([previous_employment]);
-      }
-    } else if (!previousEmploymentData) {
-      previousEmploymentData = null;
-    }
-    
-    if (typeof references === 'string' && references.trim()) {
-      try {
-        referencesData = references.trim().startsWith('[')
-          ? references
-          : JSON.stringify(references.split(',').map(r => r.trim()));
-      } catch (e) {
-        referencesData = JSON.stringify([references]);
-      }
-    } else if (!referencesData) {
-      referencesData = null;
-    }
-
-    // Check which columns exist in staff table
-    const USE_POSTGRESQL = !!process.env.DATABASE_URL;
-    let staffTableInfo;
-    let staffColumnNames;
-    
-    if (USE_POSTGRESQL) {
-      staffTableInfo = await db.all(
-        "SELECT column_name as name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'staff'"
-      );
-      staffColumnNames = staffTableInfo.map(col => col.name);
-    } else {
-      staffTableInfo = await db.all("PRAGMA table_info(staff)");
-      staffColumnNames = staffTableInfo.map(col => col.name);
-    }
-    
-    const hasEnhancedFields = staffColumnNames.includes('date_of_birth') && 
-                              staffColumnNames.includes('place_of_birth') &&
-                              staffColumnNames.includes('nationality');
-    
-    // Check if references column exists (could be 'references' or '[references]')
-    const hasReferencesColumn = staffColumnNames.includes('references') || 
-                                 staffColumnNames.includes('[references]');
-    const referencesColumnName = USE_POSTGRESQL ? '"references"' : '[references]';
-    
     // Create staff record - use appropriate columns based on what exists
     let staffResult;
     try {
@@ -365,17 +253,9 @@ router.post('/', authenticateToken, requireRole('Admin'), [
           qualificationsData, previousEmploymentData
         ];
         
-        // Only add referencesData if the column exists
-        if (hasReferencesColumn) {
-          params.push(referencesData);
-        }
-        
-        // Always add notes at the end
-        params.push(notes || null);
-        
         console.log(`Inserting staff with ${columns.length} columns and ${params.length} parameters`);
         console.log('Columns:', columns);
-        console.log('Params count:', params.length);
+        console.log('Params:', params);
         
         staffResult = await db.run(
           `INSERT INTO staff (${columnList})
@@ -446,11 +326,11 @@ router.post('/', authenticateToken, requireRole('Admin'), [
     // Handle specific database errors
     let errorMessage = 'Failed to create staff member';
     if (error.message && error.message.includes('FOREIGN KEY constraint')) {
-      errorMessage = 'Foreign key constraint failed. Please ensure the department exists.';
+      errorMessage = 'Foreign key constraint failed. Please ensure the department exists. Department head name not found on table.';
     } else if (error.message && error.message.includes('UNIQUE constraint')) {
-      errorMessage = 'A staff member or user with this email already exists.';
+      errorMessage = 'A staff member or user with this email already exists. Please use a different email address.';
     } else if (error.message && error.message.includes('NOT NULL constraint')) {
-      errorMessage = 'Required fields are missing.';
+      errorMessage = 'Required fields are missing. Please check the required fields and try again.';
     } else if (error.message) {
       errorMessage = error.message;
     }
@@ -462,26 +342,21 @@ router.post('/', authenticateToken, requireRole('Admin'), [
   }
 });
 
-// Update staff member
-router.put('/:id', authenticateToken, requireRole('Admin'), async (req, res) => {
+// Update staff member information (Admin and Human Resources Department Head only)
+router.put('/:id', authenticateToken, requireRole(['Admin', 'HumanResourcesDepartmentHead']), async (req, res) => {
   try {
     const staffId = req.params.id;
-    
-    // Validate staff ID
-    if (!staffId || staffId === 'null' || staffId === 'undefined') {
-      return res.status(400).json({ error: 'Invalid staff ID provided' });
-    }
-    
     const updates = req.body;
 
-    // Get staff record - try both id and staff_id
     const staff = await db.get('SELECT user_id, id FROM staff WHERE id = ? OR staff_id = ?', [staffId, staffId]);
     if (!staff) {
-      return res.status(404).json({ error: 'Staff member not found' });
+      return res.status(404).json({ error: 'Staff member information not found' });
+    } else if (staff.user_id !== req.user.id && req.user.role !== 'Admin' && req.user.role !== 'HumanResourcesDepartmentHead') {
+      return res.status(403).json({ error: 'Only Admin and Human Resources Department Head can update staff member information' });
     }
 
     // Update user info if provided
-    if (updates.name || updates.phone || updates.profile_image !== undefined) {
+    if (updates.name || updates.phone || updates.profile_image !== undefined || updates.password !== undefined) {
       const userUpdates = [];
       const userParams = [];
       if (updates.name) {
@@ -495,6 +370,10 @@ router.put('/:id', authenticateToken, requireRole('Admin'), async (req, res) => 
       if (updates.profile_image !== undefined) {
         userUpdates.push('profile_image = ?');
         userParams.push(updates.profile_image);
+      }
+      if (updates.password) {
+        userUpdates.push('password_hash = ?');
+        userParams.push(await hashPassword(updates.password));
       }
       if (userUpdates.length > 0) {
         userParams.push(staff.user_id);
@@ -517,7 +396,7 @@ router.put('/:id', authenticateToken, requireRole('Admin'), async (req, res) => 
       staffColumnNames = staffTableInfo.map(col => col.name);
     }
     
-    // Update staff info - only update fields that exist in the table
+    // Update staff info - only update fields that exist in the table (Admin and Human Resources Department Head only)
     const staffUpdates = [];
     const staffParams = [];
     const allowedFields = [
@@ -531,7 +410,7 @@ router.put('/:id', authenticateToken, requireRole('Admin'), async (req, res) => 
 
     allowedFields.forEach(field => {
       if (updates[field] !== undefined) {
-        // Check if column exists in table
+        // Check if column exists in table (Admin and Human Resources Department Head only)
         let columnExists = false;
         if (field === 'references') {
           // References column is escaped differently in SQLite vs PostgreSQL
@@ -544,32 +423,21 @@ router.put('/:id', authenticateToken, requireRole('Admin'), async (req, res) => 
           columnExists = staffColumnNames.includes(field);
         }
         
-        // Skip field if column doesn't exist
+        // Skip field if column doesn't exist (Admin and Human Resources Department Head only)
         if (!columnExists) {
           return;
         }
-        // Handle JSON fields
+        // Handle JSON fields (Admin and Human Resources Department Head only)
         let value = updates[field];
-        if ((field === 'qualifications' || field === 'previous_employment' || field === 'references') && typeof value === 'string' && value.trim()) {
-          try {
-            value = value.trim().startsWith('[') 
-              ? value 
-              : JSON.stringify(value.split(',').map(item => item.trim()));
-          } catch (e) {
-            value = JSON.stringify([value]);
-          }
-        }
-        // Escape 'references' as it's a reserved keyword in SQL
-        const fieldName = field === 'references' 
-          ? (USE_POSTGRESQL_UPDATE ? '"references"' : '[references]')
-          : field;
+        // Escape 'references' as it's a reserved keyword in SQL (Admin and Human Resources Department Head only)
+        const fieldName = field === 'references' ? (USE_POSTGRESQL_UPDATE ? '"references"' : '[references]') : field;
         staffUpdates.push(`${fieldName} = ?`);
         staffParams.push(value || null);
       }
     });
 
     if (staffUpdates.length > 0) {
-      // Use the actual staff.id from the database, not the param (in case staff_id was used)
+      // Use the actual staff.id from the database, not the param (in case staff_id was used) (Admin and Human Resources Department Head only)
       const actualStaffId = staff.id || staffId;
       staffParams.push(actualStaffId);
       await db.run(`UPDATE staff SET ${staffUpdates.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, staffParams);
@@ -608,10 +476,10 @@ router.delete('/:id', authenticateToken, requireRole('Admin'), async (req, res) 
 
     await logAction(req.user.id, 'delete_staff', 'staff', staffId, {}, req);
 
-    res.json({ message: 'Staff member deleted successfully' });
+    res.json({ message: 'Staff member information deleted successfully' });
   } catch (error) {
     console.error('Delete staff error:', error);
-    res.status(500).json({ error: 'Failed to delete staff member' });
+    res.status(500).json({ error: 'Failed to delete staff member. Staff table does not exist yet.' });
   }
 });
 
@@ -682,14 +550,14 @@ router.get('/:id/leaves', authenticateToken, async (req, res) => {
 });
 
 // Create leave request
-router.post('/:id/leaves', authenticateToken, [
-  body('leave_type').isIn(['Sick', 'Vacation', 'Personal', 'Emergency']),
+router.post('/:id/leaves', authenticateToken, requireRole(['Admin', 'HumanResourcesDepartmentHead']), [
+  body('leave_type').isIn(['Sick', 'Vacation', 'Personal', 'Emergency', 'Other']),
   body('start_date').isISO8601(),
   body('end_date').isISO8601(),
-  body('reason').trim().notEmpty()
+  body('reason').trim().notEmpty().optional()
 ], async (req, res) => {
   try {
-    const { leave_type, start_date, end_date, reason } = req.body;
+    const { leave_type, start_date, end_date, reason = null } = req.body;
     const staffId = req.params.id;
 
     // Calculate days
@@ -712,8 +580,8 @@ router.post('/:id/leaves', authenticateToken, [
   }
 });
 
-// Approve/reject leave request (Admin only)
-router.put('/leaves/:leaveId', authenticateToken, requireRole('Admin'), [
+// Approve/reject leave request (Admin and Human Resource Department Head only)
+router.put('/leaves/:leaveId', authenticateToken, requireRole(['Admin', 'HumanResourcesDepartmentHead']), [
   body('status').isIn(['Approved', 'Rejected'])
 ], async (req, res) => {
   try {

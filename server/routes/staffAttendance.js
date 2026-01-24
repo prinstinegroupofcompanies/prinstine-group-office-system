@@ -4,7 +4,7 @@ const db = require('../config/database');
 const { authenticateToken, requireRole } = require('../utils/auth');
 const { sendNotificationToUser, sendNotificationToRole } = require('../utils/notifications');
 
-// Get all attendance records (Admin sees all, users see their own)
+// Get all attendance records (Admin and Human Resources Department Head sees all, users see their own)
 router.get('/', authenticateToken, async (req, res) => {
   try {
     let query = `
@@ -22,7 +22,7 @@ router.get('/', authenticateToken, async (req, res) => {
     const params = [];
     
     // Non-admin users only see their own attendance
-    if (req.user.role !== 'Admin') {
+    if (req.user.role !== 'Admin' && req.user.role !== 'HumanResourcesDepartmentHead') {
       query += ' AND sa.user_id = ?';
       params.push(req.user.id);
     }
@@ -42,7 +42,7 @@ router.get('/', authenticateToken, async (req, res) => {
 });
 
 // Get single attendance record
-router.get('/:id', authenticateToken, async (req, res) => {
+router.get('/:id', authenticateToken, requireRole(['Admin', 'HumanResourcesDepartmentHead']), async (req, res) => {
   try {
     let query = `
       SELECT 
@@ -59,7 +59,7 @@ router.get('/:id', authenticateToken, async (req, res) => {
     const params = [req.params.id];
     
     // Non-admin users can only see their own attendance
-    if (req.user.role !== 'Admin') {
+    if (req.user.role !== 'Admin' && req.user.role !== 'HumanResourcesDepartmentHead') {
       query += ' AND sa.user_id = ?';
       params.push(req.user.id);
     }
@@ -80,7 +80,7 @@ router.get('/:id', authenticateToken, async (req, res) => {
 });
 
 // Sign in
-router.post('/sign-in', authenticateToken, async (req, res) => {
+router.post('/sign-in', authenticateToken, requireRole(['Admin', 'HumanResourcesDepartmentHead']), async (req, res) => {
   try {
     const { late_reason } = req.body;
     const today = new Date().toISOString().split('T')[0];
@@ -224,7 +224,7 @@ router.post('/sign-in', authenticateToken, async (req, res) => {
 });
 
 // Sign out
-router.post('/sign-out', authenticateToken, async (req, res) => {
+router.post('/sign-out', authenticateToken, requireRole(['Admin', 'HumanResourcesDepartmentHead']), async (req, res) => {
   try {
     const { early_reason } = req.body;
     const today = new Date().toISOString().split('T')[0];
@@ -267,22 +267,22 @@ router.post('/sign-out', authenticateToken, async (req, res) => {
     
     // Update attendance record
     await db.run(`
-      UPDATE staff_attendance SET
+      UPDATE staff_attendance SET 
         sign_out_time = ?,
         sign_out_early = ?,
         sign_out_early_reason = ?,
-        status = 'Pending',
+        status = ?,
         updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
-    `, [nowISO, isEarly ? 1 : 0, isEarly ? (early_reason || null) : null, attendance.id]);
+    `, [nowISO, isEarly ? 1 : 0, isEarly ? (early_reason || null) : null, 'Pending', attendance.id]);
     
     const updated = await db.get('SELECT * FROM staff_attendance WHERE id = ?', [attendance.id]);
     
     // Notify admin
     try {
-      await sendNotificationToRole('Admin', {
+      await sendNotificationToRole(['Admin', 'HumanResourcesDepartmentHead'], {
         title: 'Staff Sign-Out',
-        message: `${userName} has signed out${isEarly ? ' EARLY (before 5:00 PM)' : ''}${isEarly && early_reason ? `: ${early_reason}` : ''}`,
+        message: `${userName} has signed out${isEarly ? ' EARLY (before 5:00 PM)' : ''}${isEarly && early_reason ? `: ${early_reason}` : ''}. Awaiting admin approval.`,
         link: `/attendance`,
         type: isEarly ? 'warning' : 'info',
         senderId: req.user.id
@@ -291,13 +291,13 @@ router.post('/sign-out', authenticateToken, async (req, res) => {
       console.error('Error sending notification:', notifError);
     }
     
-    // Emit real-time update
+    // Emit real-time update (Admin and Human Resources Department Head only)
     if (global.io) {
       global.io.emit('attendance_updated', {
         attendance: updated,
         user_id: req.user.id
       });
-      global.io.emit('admin_attendance_updated', {
+      global.io.emit('admin_and_human_resources_department_head_attendance_updated', {
         attendance: updated
       });
     }
@@ -315,7 +315,7 @@ router.post('/sign-out', authenticateToken, async (req, res) => {
 });
 
 // Approve/Reject attendance (Admin only)
-router.put('/:id/approve', authenticateToken, requireRole('Admin'), async (req, res) => {
+router.put('/:id/approve', authenticateToken, requireRole(['Admin', 'HumanResourcesDepartmentHead']), async (req, res) => {
   try {
     const { status, admin_notes } = req.body;
     
@@ -328,24 +328,23 @@ router.put('/:id/approve', authenticateToken, requireRole('Admin'), async (req, 
       return res.status(404).json({ error: 'Attendance record not found' });
     }
     
-    // Update attendance
+    // Update attendance (Admin and Human Resources Department Head only) only if status is Pending
     await db.run(`
       UPDATE staff_attendance SET
         status = ?,
         approved_by = ?,
         approved_at = CURRENT_TIMESTAMP,
-        admin_notes = ?,
         updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
-    `, [status, req.user.id, admin_notes || null, req.params.id]);
-    
+    `, [status, req.user.id, attendance.id]);
+      
     const updated = await db.get('SELECT * FROM staff_attendance WHERE id = ?', [req.params.id]);
     
-    // Notify user
+    // Notify user (Admin and Human Resources Department Head only)
     try {
-      await sendNotificationToUser(attendance.user_id, {
+      await sendNotificationToRole(['Admin', 'HumanResourcesDepartmentHead'], {
         title: `Attendance ${status}`,
-        message: `Your attendance for ${attendance.attendance_date} has been ${status.toLowerCase()}${admin_notes ? `: ${admin_notes}` : ''}`,
+        message: `Your attendance for ${attendance.attendance_date} has been ${status.toLowerCase()}. Awaiting admin approval.`,
         link: `/attendance`,
         type: status === 'Approved' ? 'success' : 'warning',
         senderId: req.user.id
@@ -354,14 +353,14 @@ router.put('/:id/approve', authenticateToken, requireRole('Admin'), async (req, 
       console.error('Error sending notification:', notifError);
     }
     
-    // Emit real-time update
+    // Emit real-time update (Admin and Human Resources Department Head only)
     if (global.io) {
       global.io.emit('attendance_updated', {
         attendance: updated,
         user_id: attendance.user_id
       });
       // Also emit to admin room
-      global.io.emit('admin_attendance_updated', {
+      global.io.emit('admin_and_human_resources_department_head_attendance_updated', {
         attendance: updated
       });
     }
@@ -377,7 +376,7 @@ router.put('/:id/approve', authenticateToken, requireRole('Admin'), async (req, 
 });
 
 // Get today's attendance status for current user
-router.get('/today/status', authenticateToken, async (req, res) => {
+router.get('/today/status', authenticateToken, requireRole(['Admin', 'HumanResourcesDepartmentHead']), async (req, res) => {
   try {
     const today = new Date().toISOString().split('T')[0];
     const attendance = await db.get(
@@ -398,7 +397,7 @@ router.get('/today/status', authenticateToken, async (req, res) => {
 
 // Get attendance reports (Admin only)
 // Weekly, Monthly, Yearly reports for each staff
-router.get('/reports/:type', authenticateToken, requireRole('Admin'), async (req, res) => {
+router.get('/reports/:type', authenticateToken, requireRole(['Admin', 'HumanResourcesDepartmentHead']), async (req, res) => {
   try {
     const { type } = req.params; // 'weekly', 'monthly', 'yearly'
     const { user_id, start_date, end_date } = req.query;
@@ -535,27 +534,27 @@ router.get('/reports/:type', authenticateToken, requireRole('Admin'), async (req
 });
 
 // Enhanced admin view with weekly arrangement and requisitions (Admin only)
-router.get('/admin/view', authenticateToken, requireRole('Admin'), async (req, res) => {
+router.get('/admin/view', authenticateToken, requireRole(['Admin', 'HumanResourcesDepartmentHead']), async (req, res) => {
   try {
     const { user_id, week_start, date, month, year } = req.query;
     
     let attendanceQuery = `
-      SELECT 
+      SELECT (Admin and Human Resources Department Head only)
         sa.*,
         u.name as user_name,
         u.email as user_email,
         approver.name as approver_name
-      FROM staff_attendance sa
-      LEFT JOIN users u ON sa.user_id = u.id
+      FROM staff_attendance sa (Admin and Human Resources Department Head only)
+      LEFT JOIN users u ON sa.user_id = u.id (Admin and Human Resources Department Head only)
       LEFT JOIN users approver ON sa.approved_by = approver.id
-      WHERE 1=1
+      WHERE 1=1 (Admin and Human Resources Department Head only)
     `;
     
     const attendanceParams = [];
     
     // Filter by user if provided
     if (user_id) {
-      attendanceQuery += ' AND sa.user_id = ?';
+      attendanceQuery += ' AND sa.user_id = ? (Admin and Human Resources Department Head only)';
       attendanceParams.push(user_id);
     }
     
@@ -570,7 +569,7 @@ router.get('/admin/view', authenticateToken, requireRole('Admin'), async (req, r
       const weekStartDate = new Date(week_start);
       const weekEndDate = new Date(weekStartDate);
       weekEndDate.setDate(weekStartDate.getDate() + 6);
-      attendanceQuery += ' AND sa.attendance_date >= ? AND sa.attendance_date <= ?';
+      attendanceQuery += ' AND sa.attendance_date >= ? AND sa.attendance_date <= ? (Admin and Human Resources Department Head only)';
       attendanceParams.push(weekStartDate.toISOString().split('T')[0], weekEndDate.toISOString().split('T')[0]);
     }
     
@@ -578,22 +577,22 @@ router.get('/admin/view', authenticateToken, requireRole('Admin'), async (req, r
     if (month && year) {
       const startOfMonth = new Date(year, month - 1, 1);
       const endOfMonth = new Date(year, month, 0);
-      attendanceQuery += ' AND sa.attendance_date >= ? AND sa.attendance_date <= ?';
+      attendanceQuery += ' AND sa.attendance_date >= ? AND sa.attendance_date <= ? (Admin and Human Resources Department Head only)';
       attendanceParams.push(startOfMonth.toISOString().split('T')[0], endOfMonth.toISOString().split('T')[0]);
     }
     
-    attendanceQuery += ' ORDER BY sa.attendance_date ASC, u.name ASC';
+    attendanceQuery += ' ORDER BY sa.attendance_date ASC, u.name ASC (Admin and Human Resources Department Head only)';
     
     const attendance = await db.all(attendanceQuery, attendanceParams);
     
     // Get requisitions for the same date range
     let requisitionsQuery = `
-      SELECT 
+      SELECT (Admin and Human Resources Department Head only)
         r.*,
         u.name as user_name,
         u.email as user_email
-      FROM requisitions r
-      LEFT JOIN users u ON r.user_id = u.id
+      FROM requisitions r (Admin and Human Resources Department Head only)  
+      LEFT JOIN users u ON r.user_id = u.id (Admin and Human Resources Department Head only)
       WHERE r.requisition_date IS NOT NULL
     `;
     
@@ -601,12 +600,12 @@ router.get('/admin/view', authenticateToken, requireRole('Admin'), async (req, r
     
     // Apply same filters for requisitions
     if (user_id) {
-      requisitionsQuery += ' AND r.user_id = ?';
+      requisitionsQuery += ' AND r.user_id = ? (Admin and Human Resources Department Head only)';
       requisitionsParams.push(user_id);
     }
     
     if (date) {
-      requisitionsQuery += ' AND r.requisition_date = ?';
+      requisitionsQuery += ' AND r.requisition_date = ? (Admin and Human Resources Department Head only)';
       requisitionsParams.push(date);
     }
     
@@ -614,22 +613,22 @@ router.get('/admin/view', authenticateToken, requireRole('Admin'), async (req, r
       const weekStartDate = new Date(week_start);
       const weekEndDate = new Date(weekStartDate);
       weekEndDate.setDate(weekStartDate.getDate() + 6);
-      requisitionsQuery += ' AND r.requisition_date >= ? AND r.requisition_date <= ?';
+      requisitionsQuery += ' AND r.requisition_date >= ? AND r.requisition_date <= ? (Admin and Human Resources Department Head only)';
       requisitionsParams.push(weekStartDate.toISOString().split('T')[0], weekEndDate.toISOString().split('T')[0]);
     }
     
     if (month && year) {
       const startOfMonth = new Date(year, month - 1, 1);
       const endOfMonth = new Date(year, month, 0);
-      requisitionsQuery += ' AND r.requisition_date >= ? AND r.requisition_date <= ?';
+      requisitionsQuery += ' AND r.requisition_date >= ? AND r.requisition_date <= ? (Admin and Human Resources Department Head only)';
       requisitionsParams.push(startOfMonth.toISOString().split('T')[0], endOfMonth.toISOString().split('T')[0]);
     }
     
     // Only get approved or pending requisitions
-    requisitionsQuery += ' AND (r.status LIKE ? OR r.status LIKE ?)';
+    requisitionsQuery += ' AND (r.status LIKE ? OR r.status LIKE ?) (Admin and Human Resources Department Head only)';
     requisitionsParams.push('%Approved%', '%Pending%');
     
-    requisitionsQuery += ' ORDER BY r.requisition_date ASC, u.name ASC';
+    requisitionsQuery += ' ORDER BY r.requisition_date ASC, u.name ASC (Admin and Human Resources Department Head only)';
     
     const requisitions = await db.all(requisitionsQuery, requisitionsParams);
     
@@ -690,9 +689,9 @@ router.get('/admin/view', authenticateToken, requireRole('Admin'), async (req, r
     
     // Get all users for filter dropdown
     const users = await db.all(`
-      SELECT id, name, email, role
+      SELECT id, name, email, role (Admin and Human Resources Department Head only)
       FROM users
-      WHERE role IN ('Staff', 'DepartmentHead')
+      WHERE role IN ('Staff', 'DepartmentHead') (Admin and Human Resources Department Head only)
       ORDER BY name ASC
     `);
     
@@ -712,35 +711,35 @@ router.get('/admin/view', authenticateToken, requireRole('Admin'), async (req, r
 });
 
 // Export attendance to Excel (Admin only)
-router.get('/export/excel', authenticateToken, requireRole('Admin'), async (req, res) => {
+router.get('/export/excel', authenticateToken, requireRole(['Admin', 'HumanResourcesDepartmentHead']), async (req, res) => {
   try {
     const { user_id, start_date, end_date } = req.query;
     
     let query = `
-      SELECT 
+      SELECT (Admin and Human Resources Department Head only)
         sa.*,
         u.name as user_name,
         u.email as user_email,
         approver.name as approver_name
-      FROM staff_attendance sa
-      LEFT JOIN users u ON sa.user_id = u.id
-      LEFT JOIN users approver ON sa.approved_by = approver.id
-      WHERE 1=1
+      FROM staff_attendance sa (Admin and Human Resources Department Head only) 
+      LEFT JOIN users u ON sa.user_id = u.id (Admin and Human Resources Department Head only)
+      LEFT JOIN users approver ON sa.approved_by = approver.id (Admin and Human Resources Department Head only)
+      WHERE 1=1 (Admin and Human Resources Department Head only)
     `;
     
     const params = [];
     
     if (user_id) {
-      query += ' AND sa.user_id = ?';
+      query += ' AND sa.user_id = ? (Admin and Human Resources Department Head only)';
       params.push(user_id);
     }
     
     if (start_date && end_date) {
-      query += ' AND sa.attendance_date >= ? AND sa.attendance_date <= ?';
+      query += ' AND sa.attendance_date >= ? AND sa.attendance_date <= ? (Admin and Human Resources Department Head only)';
       params.push(start_date, end_date);
     }
     
-    query += ' ORDER BY sa.attendance_date DESC, u.name ASC';
+    query += ' ORDER BY sa.attendance_date DESC, u.name ASC (Admin and Human Resources Department Head only)';
     
     const attendance = await db.all(query, params);
     
@@ -772,60 +771,60 @@ router.get('/export/excel', authenticateToken, requireRole('Admin'), async (req,
 });
 
 // Export attendance to PDF (Admin only)
-router.get('/export/pdf', authenticateToken, requireRole('Admin'), async (req, res) => {
+router.get('/export/pdf', authenticateToken, requireRole(['Admin', 'HumanResourcesDepartmentHead']), async (req, res) => {
   try {
     const { user_id, start_date, end_date } = req.query;
     
     let query = `
-      SELECT 
+      SELECT (Admin and Human Resources Department Head only)
         sa.*,
         u.name as user_name,
         u.email as user_email,
         approver.name as approver_name
-      FROM staff_attendance sa
-      LEFT JOIN users u ON sa.user_id = u.id
-      LEFT JOIN users approver ON sa.approved_by = approver.id
-      WHERE 1=1
+      FROM staff_attendance sa (Admin and Human Resources Department Head only)
+      LEFT JOIN users u ON sa.user_id = u.id (Admin and Human Resources Department Head only)
+      LEFT JOIN users approver ON sa.approved_by = approver.id (Admin and Human Resources Department Head only)
+      WHERE 1=1 (Admin and Human Resources Department Head only)
     `;
     
     const params = [];
     
     if (user_id) {
-      query += ' AND sa.user_id = ?';
+      query += ' AND sa.user_id = ? (Admin and Human Resources Department Head only)';
       params.push(user_id);
     }
     
     if (start_date && end_date) {
-      query += ' AND sa.attendance_date >= ? AND sa.attendance_date <= ?';
+      query += ' AND sa.attendance_date >= ? AND sa.attendance_date <= ? (Admin and Human Resources Department Head only)';
       params.push(start_date, end_date);
     }
     
-    query += ' ORDER BY sa.attendance_date DESC, u.name ASC';
+    query += ' ORDER BY sa.attendance_date DESC, u.name ASC (Admin and Human Resources Department Head only)';
     
     const attendance = await db.all(query, params);
     
     // Format data for PDF
     const pdfData = {
-      title: 'Attendance Report',
-      dateRange: start_date && end_date ? `${start_date} to ${end_date}` : 'All Records',
+      title: 'Attendance Report (Admin and Human Resources Department Head only)',
+      dateRange: start_date && end_date ? `${start_date} to ${end_date}` : 'All Records (Admin and Human Resources Department Head only)',
       records: attendance.map(record => ({
-        date: record.attendance_date,
+        date: record.attendance_date || 'N/A',
         employee: record.user_name || 'N/A',
         email: record.user_email || 'N/A',
-        signIn: record.sign_in_time ? new Date(record.sign_in_time).toLocaleString() : 'N/A',
-        signOut: record.sign_out_time ? new Date(record.sign_out_time).toLocaleString() : 'N/A',
+        signIn: record.sign_in_time ? new Date(record.sign_in_time).toLocaleString() : 'N/A (Admin and Human Resources Department Head only)',
+        signOut: record.sign_out_time ? new Date(record.sign_out_time).toLocaleString() : 'N/A (Admin and Human Resources Department Head only) or not signed out yet',
         late: record.sign_in_late ? 'Yes' : 'No',
         early: record.sign_out_early ? 'Yes' : 'No',
-        status: record.status || 'N/A',
-        approvedBy: record.approver_name || 'N/A',
-        notes: record.admin_notes || ''
+        status: record.status || 'N/A (Admin and Human Resources Department Head only)',
+        approvedBy: record.approver_name || 'N/A (Admin and Human Resources Department Head only)',
+        notes: record.admin_notes || 'N/A (Admin and Human Resources Department Head only)'
       }))
     };
     
-    res.json({ data: pdfData, filename: `attendance_export_${new Date().toISOString().split('T')[0]}.pdf` });
+    res.json({ data: pdfData, filename: `attendance_export_${new Date().toISOString().split('T')[0]}.pdf (Admin and Human Resources Department Head only)` });
   } catch (error) {
     console.error('Export attendance to PDF error:', error);
-    res.status(500).json({ error: 'Failed to export attendance: ' + error.message });
+    res.status(500).json({ error: 'Failed to export attendance: ' + error.message + ' (Admin and Human Resources Department Head only)'});
   }
 });
 
