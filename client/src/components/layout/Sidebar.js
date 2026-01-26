@@ -155,7 +155,8 @@ const Sidebar = () => {
     // Academy Section
     { path: '/academy', label: 'Academy', icon: 'bi-book', roles: ['Admin', 'Instructor', 'Student', 'DepartmentHead', 'Staff'], section: 'academy' },
     { path: '/certificates', label: 'Certificates', icon: 'bi-award', roles: ['Admin'], section: 'academy' },
-
+    // Student Payment Management
+    { path: '/student-payments', label: 'Student Payments', icon: 'bi-cash-coin', roles: ['Admin', 'DepartmentHead', 'Staff'], section: 'student-payments' },
     // Profile Section
     { path: '/profile', label: 'Profile', icon: 'bi-person-circle', roles: ['Admin', 'Staff', 'Instructor', 'Student', 'Client', 'Partner', 'DepartmentHead'], section: 'profile' }
   ];
@@ -224,6 +225,7 @@ const Sidebar = () => {
               management: { label: 'Management', items: [] },
               finance: { label: 'Finance', items: [] },
               academy: { label: 'Academy', items: [] },
+              studentPayments: { label: 'Student Payments', items: [] },
               profile: { label: 'Profile', items: [] },
               other: { label: '', items: [] }
             };
