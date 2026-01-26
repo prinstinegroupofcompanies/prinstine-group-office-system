@@ -4,7 +4,7 @@ const db = require('../config/database');
 const { authenticateToken, requireRole } = require('../utils/auth');
 const { sendNotificationToUser, sendNotificationToRole } = require('../utils/notifications');
 
-// Get all attendance records (Admin sees all, users see their own)
+// Get all attendance records (Admin sees all, users see their own and users signin their attendance)
 router.get('/', authenticateToken, async (req, res) => {
   try {
     let query = `
@@ -21,8 +21,8 @@ router.get('/', authenticateToken, async (req, res) => {
     
     const params = [];
     
-    // Non-admin users only see their own attendance
-    if (req.user.role !== 'Admin' && req.user.role !== 'Admin') {
+    // Non-admin users signin and signout their attendance and see their own attendance
+    if (req.user.role !== 'Admin' && req.user.role !== '') {
       query += ' AND sa.user_id = ?';
       params.push(req.user.id);
     }
@@ -42,7 +42,7 @@ router.get('/', authenticateToken, async (req, res) => {
 });
 
 // Get single attendance record
-router.get('/:id', authenticateToken, requireRole(['Admin',]), async (req, res) => {
+router.get('/:id', authenticateToken, requireRole(['Admin']), async (req, res) => {
   try {
     let query = `
       SELECT 
@@ -58,11 +58,6 @@ router.get('/:id', authenticateToken, requireRole(['Admin',]), async (req, res) 
     
     const params = [req.params.id];
     
-    // Non-admin users can only see their own attendance
-    if (req.user.role !== 'Admin' && req.user.role !== '') {
-      query += ' AND sa.user_id = ?';
-      params.push(req.user.id);
-    }
     
     query += ' LIMIT 1';
     
