@@ -3,7 +3,7 @@
 
 const express = require('express');
 const router = express.Router();
-const db = require('../config/db'); // adjust path if needed
+const db = require('../config/database'); // adjust path if needed
 const { requireAuth, requireRole } = require('../middleware/auth');
 const { startOfDay, endOfDay, formatISO } = require('date-fns');
 
