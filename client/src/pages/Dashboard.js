@@ -736,16 +736,17 @@ const Dashboard = () => {
               <div className="card border-primary h-100">
                 <div className="card-header bg-primary text-white">
                   <h5 className="mb-0">
-                    <i className="bi bi-clock-history me-2"></i>Attendance
+                    <i className="bi bi-clock-history me-2"></i>{user?.role === 'Admin' ? 'Attendance' : 'My Attendance'} {user?.role === 'Admin' ? '' : 'View My Attendance'}
+                    <i className="bi bi-arrow-right me-2"></i>
                   </h5>
                 </div>
                 <div className="card-body">
-                  <p className="card-text">Sign in/out and view attendance</p>
+                  <p className="card-text">{user?.role === 'Admin' ? 'Sign in/out and view attendance' : 'View your attendance'}</p>
                   <button 
                     className="btn btn-outline-primary w-100"
                     onClick={() => navigate('/attendance')}
                   >
-                    <i className="bi bi-arrow-right me-2"></i>View Attendance
+                    <i className="bi bi-arrow-right me-2"></i>{user?.role === 'Admin' ? 'View Attendance' : 'View My Attendance'}
                   </button>
                 </div>
               </div>
@@ -879,8 +880,8 @@ const Dashboard = () => {
           </div>
         </div>
       )}
-      {/*if staff is a Human Resources Department Head, show the following: My Attendance, My Requisitions, My Targets, My Reports, My Clients, My Call Memos, My Proposals, My Meetings, My Calendar, My Archived Documents, My Attendance, My Requisitions, My Targets, My Reports, My Clients, My Call Memos, My Proposals, My Meetings, My Calendar, My Archived Documents, add staff, view staff, edit staff, delete staff, add client, view client, edit client, delete client, add proposal, view proposal, edit proposal, delete proposal, add meeting, view meeting, edit meeting, delete meeting, add calendar, view calendar, edit calendar, delete calendar, add archived document, view archived document, edit archived document, delete archived document, update staff, update client, update proposal, update meeting, update calendar, update archived document, manage staff attendance, manage client attendance, manage proposal attendance, manage meeting attendance, manage calendar attendance, manage archived document attendance, approve and reject attendance, approve and reject requisitions, approve and reject targets, approve and reject reports, approve and reject clients, approve and reject call memos, approve and reject proposals, approve and reject meetings, approve and reject calendar, approve and reject archived documents*/}
-      {user?.role === 'HumanResourcesDepartmentHead' && stats && (
+      {/*remove Human Resources Department Head Dashboard*/}
+      {user?.role === 'Admin' && stats && (
         <div className="row">
           <div className="col-md-6 mb-3">
             <div className="card">
@@ -891,7 +892,7 @@ const Dashboard = () => {
                   <strong>Approved:</strong> {stats.myAttendance?.approved || 0}<br />
                   <strong>Not Signed In:</strong> {stats.myAttendance?.notSignedIn || 0}
                 </p>
-                <Link to="/staff-attendance" className="btn btn-primary">
+                <Link to="/attendance" className="btn btn-primary">
                   View Staff Attendance
                 </Link>
               </div>
@@ -908,10 +909,7 @@ const Dashboard = () => {
                 </p>
                 <Link to="/requisitions" className="btn btn-primary">
                   View Requisitions
-                </Link>  <Link to="/requisitions/add" className="btn btn-primary">Add Requisition</Link>
-                <Link to="/requisitions/edit /:id" className="btn btn-primary">Edit Requisition</Link>
-                <Link to="/requisitions/delete/:id" className="btn btn-primary">Delete Requisition</Link>
-                <Link to="/requisitions/view/:id" className="btn btn-primary">View Requisition</Link>
+                </Link>  
               </div>
             </div>
           </div>
@@ -928,10 +926,6 @@ const Dashboard = () => {
                 <Link to="/targets" className="btn btn-primary">
                   View Targets
                 </Link>
-                <Link to="/targets/add" className="btn btn-primary">Add Target</Link>
-                <Link to="/targets/edit/:id" className="btn btn-primary">Edit Target</Link>
-                <Link to="/targets/delete/:id" className="btn btn-primary">Delete Target</Link>
-                <Link to="/targets/view/:id" className="btn btn-primary">View Target</Link>
               </div>
             </div>
           </div>
@@ -972,11 +966,6 @@ const Dashboard = () => {
                 <Link to="/call-memos" className="btn btn-primary">
                   View Call Memos
                 </Link>
-                <Link to="/proposals/add" className="btn btn-primary">Add Proposal</Link>
-                <Link to="/proposals/edit/:id" className="btn btn-primary">Edit Proposal</Link>
-                <Link to="/proposals/delete/:id" className="btn btn-primary">Delete Proposal</Link>
-                <Link to="/proposals/view/:id" className="btn btn-primary">View Proposal</Link>
-                <Link to="/proposals/view" className="btn btn-primary">View Proposals</Link>
               </div>
             </div>
           </div>

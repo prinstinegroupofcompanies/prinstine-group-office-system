@@ -157,7 +157,7 @@ const Sidebar = () => {
     { path: '/notifications', label: 'Send Notifications', icon: 'bi-bell', roles: ['Admin'], section: 'management' },
     { path: '/users', label: 'Users', icon: 'bi-people-fill', roles: ['Admin'], section: 'management' },
     { path: '/departments', label: 'Departments', icon: 'bi-building', roles: ['Admin'], section: 'management' },
-    { path: '/staff', label: 'Staff', icon: 'bi-people', roles: ['Admin'], section: 'management' },
+    { path: '/staff', label: 'Staff', icon: 'bi-people', roles: ['Admin', 'samantha@prinstinegroup.org'], section: 'management' },
     { path: '/clients', label: 'Clients', icon: 'bi-person-badge', roles: ['Admin', 'Staff', 'DepartmentHead'], section: 'management' },
     { path: '/partners', label: 'Partners', icon: 'bi-handshake', roles: ['Admin'], section: 'management' },
     
@@ -173,6 +173,10 @@ const Sidebar = () => {
     { path: '/profile', label: 'Profile', icon: 'bi-person-circle', roles: ['Admin', 'Staff', 'Instructor', 'Student', 'Client', 'Partner', 'DepartmentHead'], section: 'profile' }
   ];
 
+  // add samantha@prinstinegroup.org to the roles array to manage staff by adding, editing, updating, deleting, viewing, approving, and rejecting staff
+  if (user?.email === 'samantha@prinstinegroup.org') {
+    menuItems.push({ path: '/staff', label: 'Staff', icon: 'bi-people', roles: ['Admin', 'samantha@prinstinegroup.org'], section: 'management' });
+  }
   // Filter menu items based on role and special conditions
   const filteredMenuItems = menuItems.filter(item => {
     // Check if item is accessible by role
