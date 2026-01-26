@@ -4,7 +4,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../config/database'); // adjust path if needed
-const { requireAuth, requireRole } = require('../middleware/auth');
+const { authenticateToken, requireRole } = require('../utils/auth');
 const { startOfDay, endOfDay, formatISO } = require('date-fns');
 
 // Helper: get today date (YYYY-MM-DD) in server local time
