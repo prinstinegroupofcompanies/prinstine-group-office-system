@@ -1,15 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import api from '../../config/api'; // For image upload
+import api from '../../config/api';
 import { normalizeUrl } from '../../utils/apiUrl';
-import { useAuth } from '../../hooks/useAuth';
-import { isAcademyStaff as isAcademyStaffUtils } from '../../utils/academyUtils';
-import { useNavigate } from 'react-router-dom';
-import { v4 as uuidv4 } from 'uuid';
 import db from '../../database/db';
+
 const StudentForm = ({ student, onClose }) => {
-  const { user } = useAuth();
-  const isAcademyStaff = isAcademyStaffUtils(user);
-  const navigate = useNavigate();
+  console.log(student);
   const [formData, setFormData] = useState({
     name: '',
     email: '',
@@ -17,7 +12,7 @@ const StudentForm = ({ student, onClose }) => {
     phone: '',
     enrollment_date: '',
     status: 'Active',
-    profile_image: '',
+    profile_image: null,
     courses_enrolled: [],
     cohort_id: '',
     period: '',
@@ -29,177 +24,230 @@ const StudentForm = ({ student, onClose }) => {
     national_id: '',
     password: ''
   });
+
   const [courses, setCourses] = useState([]);
   const [cohorts, setCohorts] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
   const [uploadingImage, setUploadingImage] = useState(false);
+  const [error, setError] = useState('');
+
+  /* =========================
+     LOAD INITIAL DATA
+  ========================= */
 
   useEffect(() => {
     fetchCourses();
     fetchCohorts();
-    if (student) populateForm(student);
+
+    if (student) {
+      setFormData({
+        ...formData,
+        ...student,
+        enrollment_date: student.enrollment_date ? new Date(student.enrollment_date).toISOString().split('T')[0] : '',
+        courses_enrolled: student.courses_enrolled ? (typeof student.courses_enrolled === 'string' ? JSON.parse(student.courses_enrolled) : student.courses_enrolled) : [],
+        profile_image: student.profile_image ? normalizeUrl(student.profile_image) : null,
+        password: ''
+      });
+    }
+    // eslint-disable-next-line
   }, [student]);
 
-  const populateForm = (student) => {
-    let coursesEnrolled = [];
-    if (student.courses_enrolled) {
-      try {
-        coursesEnrolled = typeof student.courses_enrolled === 'string'
-          ? JSON.parse(student.courses_enrolled)
-          : student.courses_enrolled;
-      } catch {
-        coursesEnrolled = [];
-      }
-    }
-    setFormData({
-      name: student.name || '',
-      email: student.email || '',
-      username: student.username || '',
-      phone: student.phone || '',
-      enrollment_date: student.enrollment_date ? student.enrollment_date.split('T')[0] : '',
-      status: student.status || 'Active',
-      profile_image: student.profile_image || '',
-      courses_enrolled: coursesEnrolled,
-      cohort_id: student.cohort_id || '',
-      period: student.period || '',
-      date_of_birth: student.date_of_birth || '',
-      place_of_birth: student.place_of_birth || '',
-      nationality: student.nationality || '',
-      gender: student.gender || '',
-      marital_status: student.marital_status || '',
-      national_id: student.national_id || '',
-      password: ''
-    });
-  };
-
   const fetchCourses = async () => {
-    try {
-      const res = await db.query('SELECT * FROM courses');
-      setCourses(res.rows || []);
-    } catch (err) {
-      console.error('Error fetching courses:', err);
-    }
+    const res = await db.query('SELECT * FROM courses');
+    setCourses(res || []);
   };
 
   const fetchCohorts = async () => {
-    try {
-      const res = await db.query('SELECT * FROM cohorts WHERE status = ?', ['Active']);
-      setCohorts(res.rows || []);
-    } catch (err) {
-      console.error('Error fetching cohorts:', err);
-    }
+    const res = await db.query('SELECT * FROM cohorts WHERE status = ?', ['Active']);
+    setCohorts(res || []);
   };
+
+  /* =========================
+     FORM HANDLERS
+  ========================= */
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
+
     if (type === 'checkbox') {
       const id = parseInt(value);
       setFormData(prev => ({
         ...prev,
         courses_enrolled: checked
           ? [...prev.courses_enrolled, id]
-          : prev.courses_enrolled.filter(cid => cid !== id)
+          : prev.courses_enrolled.filter(c => parseInt(c) !== id)
       }));
     } else {
       setFormData(prev => ({ ...prev, [name]: value }));
     }
   };
 
+  /* =========================
+     STUDENT IMAGE UPLOAD (FIXED)
+  ========================= */
+
   const handleImageUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
 
     if (file.size > 5 * 1024 * 1024) {
-      setError('Image size must be less than 5MB');
+      setError('Image must be less than 5MB');
       return;
     }
 
     setUploadingImage(true);
-    try {
-      const form = new FormData();
-      form.append('image', file);
+    setError('');
 
-      const res = await db.run('INSERT INTO profile_images (image) VALUES (?)', [imageUrl.toString() + uuidv4()]);
-      const imageUrl = res.lastID;
-      setFormData(prev => ({ ...prev, profile_image: imageUrl.toString() + uuidv4() }));
-      onClose();
+    try {
+      const fd = new FormData();
+      fd.append('image', file);
+
+      const res = await db.query('INSERT INTO student_images (student_id, image_url) VALUES (?, ?)', [formData.id, file.path]);
+      if (res.affectedRows > 0) {
+        setFormData(prev => ({ ...prev, profile_image: file.path }));
+      } else {
+        setError('Image upload failed');
+      }
     } catch (err) {
-      setError('Image upload failed: ' + (err.response?.data?.error || err.message));
+      setError('Image upload failed: ' + err.message);
     } finally {
       setUploadingImage(false);
     }
   };
 
+  /* =========================
+     SUBMIT
+  ========================= */
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
+
+    try {
+      const payload = {
+        ...formData,
+        courses_enrolled: formData.courses_enrolled,
+        cohort_id: formData.cohort_id || null,
+        period: formData.period || null,
+        password: formData.password || null
+      };
+
+      if (student) {
+        await db.query('UPDATE students SET ? WHERE id = ?', [payload, student.id]);
+      } else {
+        await db.query('INSERT INTO students SET ?', [payload]);
+      }
+
+      onClose();
+    } catch (err) {
+      setError('Failed to save student: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  /* =========================
+     RENDER
+  ========================= */
+
   return (
-    <div className="modal show d-block" tabIndex="-1" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
+    <div className="modal show d-block" style={{ background: 'rgba(0,0,0,.5)' }}>
       <div className="modal-dialog modal-lg">
-        <div className="modal-content">
+        <form className="modal-content" onSubmit={handleSubmit}>
           <div className="modal-header">
-            <h5 className="modal-title">{student ? 'Edit Student' : 'Add Student'}</h5>
-            <button type="button" className="btn-close" onClick={onClose}></button>
+            <h5>{student ? 'Edit Student' : 'Add Student'}</h5>
+            <button type="button" className="btn-close" onClick={onClose} />
           </div>
-          <form onSubmit={handleSubmit}>
-            <div className="modal-body">
-              {error && <div className="alert alert-danger">{error}</div>}
-              {/* Profile Image */}
-              <div className="mb-3">
-                <label className="form-label">Profile Image</label>
-                <div className="mb-2">
-                  {formData.profile_image && (
-                    <img
-                      src={formData.profile_image}
-                      alt="Profile"
-                      style={{ width: '100px', height: '100px', objectFit: 'cover', borderRadius: '50%' }}
-                    />
-                  )}
-                </div>
-                <input type="file" className="form-control" accept="image/*" onChange={handleImageUpload} disabled={uploadingImage} />
-                {uploadingImage && <small className="text-muted">Uploading...</small>}
+
+          <div className="modal-body">
+            {error && <div className="alert alert-danger">{error}</div>}
+
+            {/* IMAGE */}
+            <div className="mb-3">
+              <label className="form-label">Student Profile Image</label>
+              <div className="mb-2">
+                {formData.profile_image && formData.profile_image.trim() !== '' ?  (
+                  <img
+                    src={formData.profile_image.startsWith('http') ? formData.profile_image : normalizeUrl(formData.profile_image)}
+                    alt={formData.name || 'Student'}
+                    className="img-fluid rounded-circle mb-2"
+                    style={{ width: '100px', height: '100px', borderRadius: '50%', objectFit: 'cover', border: '3px solid #dee2e6' }}
+                    onError={(e) => {
+                      e.target.style.display = 'none';
+                    }}
+                  />
+                ) : (
+                  <div className="bg-secondary rounded-circle d-inline-flex align-items-center justify-content-center"
+                       style={{ width: '100px', height: '100px', border: '3px solid #dee2e6' }}>
+                    <i className="bi bi-person text-white" style={{ fontSize: '3rem' }}></i>
+                  </div>
+                )}
               </div>
-              {/* Name */}
-              <div className="mb-3">
+              <input
+                type="file"
+                accept="image/*"
+                onChange={handleImageUpload}
+                disabled={uploadingImage}
+                className="form-control"
+              />
+              {uploadingImage && <small className="text-muted">Uploading...</small>}
+            </div>
+
+            {/* BASIC INFO */}
+            <div className="row">
+              <div className="col-md-6 mb-3">
                 <label className="form-label">Name *</label>
                 <input type="text" className="form-control" name="name" value={formData.name} onChange={handleChange} required />
               </div>
-              {/* Email */}
-              <div className="mb-3">
+              <div className="col-md-6 mb-3">
                 <label className="form-label">Email *</label>
                 <input type="email" className="form-control" name="email" value={formData.email} onChange={handleChange} required disabled={!!student} />
+                {student && <small className="form-text text-muted">Email cannot be changed</small>}
               </div>
-              {/* Courses */}
-              <div className="mb-3">
-                <label className="form-label">Enroll in Courses</label>
-                <div style={{ maxHeight: '200px', overflowY: 'auto', border: '1px solid #dee2e6', padding: '10px', borderRadius: '4px' }}>
-                  {courses.length === 0
-                    ? <p className="text-muted">No courses available.</p>
-                    : courses.filter(c => c.status === 'Active' && c.fee_approved === 1)
-                             .map(course => (
-                      <div key={course.id} className="form-check">
-                        <input
-                          className="form-check-input"
-                          type="checkbox"
-                          value={course.id}
-                          checked={formData.courses_enrolled.includes(course.id)}
-                          onChange={handleChange}
-                          id={`course-${course.id}`}
-                        />
-                        <label className="form-check-label" htmlFor={`course-${course.id}`}>
-                          {course.course_code} - {course.title} (${parseFloat(course.course_fee || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})
-                        </label>
-                      </div>
-                    ))}
+            </div>
+            <input className="form-control mb-2" name="name" placeholder="Full Name" value={formData.name} onChange={handleChange} required />
+            <input className="form-control mb-2" name="email" type="email" placeholder="Email" value={formData.email} onChange={handleChange} required />
+            <input className="form-control mb-2" name="phone" type="tel" placeholder="Phone" value={formData.phone} onChange={handleChange} />
+            <input className="form-control mb-2" name="enrollment_date" type="date" placeholder="Enrollment Date" value={formData.enrollment_date} onChange={handleChange} />
+            <input className="form-control mb-2" name="status" type="text" placeholder="Status" value={formData.status} onChange={handleChange} />
+            <input className="form-control mb-2" name="profile_image" type="text" placeholder="Profile Image" value={formData.profile_image} onChange={handleChange} />
+            <input className="form-control mb-2" name="courses_enrolled" type="text" placeholder="Courses Enrolled" value={formData.courses_enrolled} onChange={handleChange} />
+            <input className="form-control mb-2" name="cohort_id" type="text" placeholder="Cohort ID" value={formData.cohort_id} onChange={handleChange} />
+            <input className="form-control mb-2" name="period" type="text" placeholder="Period" value={formData.period} onChange={handleChange} />
+            <input className="form-control mb-2" name="date_of_birth" type="date" placeholder="Date of Birth" value={formData.date_of_birth} onChange={handleChange} />
+            <input className="form-control mb-2" name="place_of_birth" type="text" placeholder="Place of Birth" value={formData.place_of_birth} onChange={handleChange} />
+            <input className="form-control mb-2" name="nationality" type="text" placeholder="Nationality" value={formData.nationality} onChange={handleChange} />
+            <input className="form-control mb-2" name="gender" type="text" placeholder="Gender" value={formData.gender} onChange={handleChange} />
+            <input className="form-control mb-2" name="marital_status" type="text" placeholder="Marital Status" value={formData.marital_status} onChange={handleChange} />
+            <input className="form-control mb-2" name="national_id" type="text" placeholder="National ID" value={formData.national_id} onChange={handleChange} />
+            <input className="form-control mb-2" name="password" type="password" placeholder="Password" value={formData.password} onChange={handleChange} />
+            {/* COURSES */}
+            <div className="border p-2 mb-2" style={{ maxHeight: 200, overflowY: 'auto' }}>
+              {courses.map((c) => (
+                <div key={c.id} className="form-check">
+                  <input
+                    type="checkbox"
+                    className="form-check-input"
+                    value={parseInt(c.id)}
+                    checked={formData.courses_enrolled.includes(c.id)}
+                    onChange={handleChange}
+                  />
+                  <label className="form-check-label">
+                    {c.course_code} - {c.title}
+                  </label>
                 </div>
-              </div>
+              ))}
             </div>
-            <div className="modal-footer">
-              <button type="button" className="btn btn-secondary" onClick={onClose}>Cancel</button>
-              <button type="submit" className="btn btn-primary" disabled={loading || uploadingImage}>
-                {loading ? 'Saving...' : student ? 'Update' : 'Create'}
-              </button>
-            </div>
-          </form>
-        </div>
+          </div>
+
+          <div className="modal-footer">
+            <button className="btn btn-secondary" type="button" onClick={onClose}>Cancel</button>
+            <button className="btn btn-primary" type="submit" disabled={loading || uploadingImage}>
+              {loading ? 'Saving...' : student ? 'Update' : 'Create'}
+            </button>
+          </div>
+        </form>
       </div>
     </div>
   );
