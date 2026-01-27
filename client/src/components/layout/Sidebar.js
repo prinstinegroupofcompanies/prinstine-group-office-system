@@ -1,3 +1,5 @@
+/* Sidebar.js - Fixed version */
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
@@ -20,29 +22,30 @@ const Sidebar = () => {
      ROLE HELPERS
   ========================= */
 
+  const normalizeRole = (role) => role?.trim().toLowerCase();
+
   const hasRole = (roles = []) => {
     if (!user) return false;
     if (roles.includes('*')) return true;
-    return roles.includes(user.role);
+    const userRole = normalizeRole(user.role);
+    return roles.some(r => normalizeRole(r) === userRole);
   };
 
   /* =========================
      ACADEMY ACCESS CHECK
-     (Mirrors backend logic)
   ========================= */
 
   const checkAcademyAccess = async () => {
     if (!user) return false;
 
-    if (user.role === 'Admin') return setHasAcademyAccess(true);
+    if (normalizeRole(user.role) === 'admin') return setHasAcademyAccess(true);
 
-    // Explicit Academy Coordinator email
     if (['cvulue@prinstinegroup.org'].includes(user.email?.toLowerCase().trim())) {
       return setHasAcademyAccess(true);
     }
 
     try {
-      if (user.role === 'DepartmentHead') {
+      if (normalizeRole(user.role) === 'departmenthead') {
         const res = await api.get('/departments');
         const dept = res.data.departments.find(d =>
           (d.manager_id === user.id ||
@@ -52,7 +55,7 @@ const Sidebar = () => {
         if (dept) return setHasAcademyAccess(true);
       }
 
-      if (user.role === 'Staff') {
+      if (normalizeRole(user.role) === 'staff') {
         const res = await api.get('/staff');
         const me = res.data.staff.find(s => s.user_id === user.id);
         if (
@@ -76,10 +79,12 @@ const Sidebar = () => {
   const checkFinanceAccess = async () => {
     if (!user) return setHasFinanceAccess(false);
 
-    if (user.role === 'Admin') return setHasFinanceAccess(true);
+    const userRole = normalizeRole(user.role);
+
+    if (userRole === 'admin') return setHasFinanceAccess(true);
 
     try {
-      if (user.role === 'DepartmentHead' || user.role === ' Assistant Finance Officer' || user.role === 'Admin') {
+      if (['departmenthead', 'assistant finance officer'].includes(userRole)) {
         const res = await api.get('/departments');
         const finance = res.data.departments.find(d =>
           (d.manager_id === user.id ||
@@ -89,7 +94,7 @@ const Sidebar = () => {
         return setHasFinanceAccess(!!finance);
       }
 
-      if (user.role === 'Staff') {
+      if (userRole === 'staff') {
         const res = await api.get('/staff');
         const me = res.data.staff.find(s => s.user_id === user.id);
         return setHasFinanceAccess(!!me?.department?.toLowerCase().includes('finance'));
@@ -133,7 +138,7 @@ const Sidebar = () => {
     checkFinanceAccess();
     checkAcademyAccess();
 
-    if (user.role === 'DepartmentHead') {
+    if (normalizeRole(user.role) === 'departmenthead') {
       fetchUnreadFromAdmin();
     }
 
@@ -142,7 +147,7 @@ const Sidebar = () => {
 
     const handler = () => {
       fetchUnreadCount();
-      if (user.role === 'DepartmentHead') fetchUnreadFromAdmin();
+      if (normalizeRole(user.role) === 'departmenthead') fetchUnreadFromAdmin();
     };
 
     socket.on('notification', handler);
@@ -155,14 +160,16 @@ const Sidebar = () => {
   ========================= */
 
   const menuItems = useMemo(() => [
-    { path: '/dashboard', label: 'Dashboard', icon: 'bi-house', roles: ['Admin'] },
+    { path: '/dashboard', label: 'Dashboard', icon: 'bi-house', roles: ['Admin', 'DepartmentHead', 'Staff', 'Assistant Finance Officer'] },
     { path: '/staff-dashboard', label: 'Staff Dashboard', icon: 'bi-house', roles: ['Staff'] },
     { path: '/department-dashboard', label: 'Department Dashboard', icon: 'bi-building', roles: ['DepartmentHead'] },
 
-    { path: '/academy', label: 'Academy Management', icon: 'bi-mortarboard', roles: ['Admin'], academy: true },
-    { path: '/academy', label: 'Academy Management', icon: 'bi-mortarboard', roles: ['Staff', 'DepartmentHead'], academy: true },
+    { path: '/academy', label: 'Academy Management', icon: 'bi-mortarboard', roles: ['Admin', 'DepartmentHead', 'Staff'], academy: true },
 
-    { path: '/finance', label: 'Finance', icon: 'bi-cash-stack', roles: ['Admin', 'Assistant Finance Officer'], finance: true },
+    // Finance menus for Admin, Finance Head, Assistant Finance Officer
+    { path: '/petty-cash', label: 'Petty Cash', icon: 'bi-cash', roles: ['Admin', 'DepartmentHead', 'Assistant Finance Officer'], finance: true },
+    { path: '/asset-registry', label: 'Asset Registry', icon: 'bi-box', roles: ['Admin', 'DepartmentHead', 'Assistant Finance Officer'], finance: true },
+    { path: '/finance-reports', label: 'Finance', icon: 'bi-cash-stack', roles: ['Admin', 'DepartmentHead', 'Assistant Finance Officer'], finance: true },
 
     { path: '/communications', label: 'Communications', icon: 'bi-chat', roles: ['*'] },
     { path: '/calendar', label: 'Calendar', icon: 'bi-calendar3', roles: ['*'] },
