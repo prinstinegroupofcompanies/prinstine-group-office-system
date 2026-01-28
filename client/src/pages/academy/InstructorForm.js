@@ -66,11 +66,8 @@ const InstructorForm = ({ instructor, courses, onClose }) => {
       fd.append('image', file);
       fd.append('type', 'instructor');
 
-      const response = await api.post('/upload/entity-image', fd, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      });
-
-      const imageUrl = response.data.imageUrl;
+      const response = await api.post('/upload/entity-image', fd);
+      const imageUrl = response.data?.imageUrl || '';
       setFormData(prev => ({ ...prev, profile_image: imageUrl }));
     } catch (err) {
       setError('Failed to upload image: ' + (err.response?.data?.error || err.message));

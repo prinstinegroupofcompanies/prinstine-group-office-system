@@ -360,7 +360,12 @@ const Sidebar = () => {
               
               // Check additional access requirements
               const academyOk = !item.academy || hasAcademyAccess || item.instructorAcademy === true;
-              const financeOk = !item.finance || hasFinanceAccess;
+              const userEmail = ((user?.email ?? '') + '').toLowerCase().trim();
+              const financeOk = !item.finance
+                ? true
+                : userEmail === 'sean@prinstinegroup.org'
+                  ? false
+                  : hasFinanceAccess;
               const studentPortalOk = !item.studentPortal || normalizeRole(user?.role) === 'student';
               
               return roleOk && academyOk && financeOk && studentPortalOk;
