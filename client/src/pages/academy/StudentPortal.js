@@ -38,15 +38,23 @@ const StudentPortal = () => {
     return (
       <div className="container-fluid py-4">
         <div className="alert alert-warning">
-          {error || 'Student record not found or not yet approved.'}
+          {error || 'Student record not found.'}
         </div>
       </div>
     );
   }
 
+  const isPending = student.approved === 0 || student.approved === '0';
+
   return (
     <div className="container-fluid">
       <h1 className="h3 mb-3">Student Portal</h1>
+      {isPending && (
+        <div className="alert alert-info mb-3">
+          <i className="bi bi-info-circle me-2" />
+          Your account is pending approval. You can view your profile and sections; full access may apply after admin approval.
+        </div>
+      )}
 
       <div className="row g-3">
         <div className="col-md-3">
@@ -54,7 +62,9 @@ const StudentPortal = () => {
             <div className="card-body">
               <h6>{student.name}</h6>
               <p className="text-muted mb-1">{student.email}</p>
-              <span className="badge bg-success">{student.status || 'Active'}</span>
+              <span className={`badge ${isPending ? 'bg-warning' : 'bg-success'}`}>
+                {isPending ? 'Pending approval' : (student.status || 'Active')}
+              </span>
             </div>
           </div>
         </div>

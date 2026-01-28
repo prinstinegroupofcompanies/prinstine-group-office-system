@@ -27,30 +27,21 @@ const Login = () => {
       console.log('Login result:', result);
       
       if (result && result.success) {
-        // Get user from localStorage to check role
         const userStr = localStorage.getItem('user');
         if (userStr) {
           try {
             const user = JSON.parse(userStr);
-            console.log('User role:', user.role);
-            // Redirect based on role
-            if (user.role === 'DepartmentHead') {
-              navigate('/department-dashboard');
-            } else if (user.role === 'Staff') {
-              navigate('/staff-dashboard');
-            } else if (user.role === 'Student') {
-              navigate('/student');
-            } else if (user.role === 'Instructor') {
-              navigate('/academy');
-            } else {
-              navigate('/dashboard');
-            }
+            const role = (user.role || '').toString().trim().toLowerCase();
+            if (role === 'departmenthead') navigate('/department-dashboard');
+            else if (role === 'staff') navigate('/staff-dashboard');
+            else if (role === 'student') navigate('/student');
+            else if (role === 'instructor') navigate('/academy');
+            else navigate('/dashboard');
           } catch (parseError) {
             console.error('Error parsing user data:', parseError);
             navigate('/dashboard');
           }
         } else {
-          console.warn('No user data in localStorage after login');
           navigate('/dashboard');
         }
       } else {

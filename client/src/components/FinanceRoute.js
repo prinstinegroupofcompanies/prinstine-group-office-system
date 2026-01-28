@@ -1,13 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Navigate, useLocation } from 'react-router-dom';
+import { Navigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import api from '../config/api';
 
-const PETTY_CASH_OR_ASSETS_PATHS = ['/finance/petty-cash', '/finance/petty-cash-ledger', '/finance/assets'];
-
 const FinanceRoute = ({ children }) => {
   const { user, loading } = useAuth();
-  const location = useLocation();
   const [hasAccess, setHasAccess] = useState(false);
   const [checking, setChecking] = useState(true);
 
@@ -15,19 +12,16 @@ const FinanceRoute = ({ children }) => {
     try {
       const email = ((user?.email ?? '') + '').toLowerCase().trim();
       const role = (user?.role ?? '').toString();
-      const isPettyOrAssets = PETTY_CASH_OR_ASSETS_PATHS.some(p => location.pathname.startsWith(p));
-      if (email === 'sean@prinstinegroup.org' && isPettyOrAssets) {
-        setHasAccess(false);
-        setChecking(false);
-        return;
-      }
       if (role === 'Admin') {
         setHasAccess(true);
         setChecking(false);
         return;
       }
-
-      // Check if user is Finance Department Head
+      if (email === 'sean@prinstinegroup.org') {
+        setHasAccess(true);
+        setChecking(false);
+        return;
+      }
       if (role === 'DepartmentHead') {
         const response = await api.get('/departments');
         const financeDept = (response.data.departments || []).find(d =>
@@ -40,14 +34,7 @@ const FinanceRoute = ({ children }) => {
           return;
         }
       }
-
-      // Check if user is Assistant Finance Officer (Staff in Finance department or by email)
       if (role === 'Staff') {
-        if (email === 'sean@prinstinegroup.org' && !isPettyOrAssets) {
-          setHasAccess(true);
-          setChecking(false);
-          return;
-        }
         const dept = ((user?.department ?? '') + '').toLowerCase();
         if (dept.includes('finance')) {
           setHasAccess(true);
@@ -55,7 +42,6 @@ const FinanceRoute = ({ children }) => {
           return;
         }
       }
-
       setHasAccess(false);
       setChecking(false);
     } catch (error) {
@@ -63,7 +49,7 @@ const FinanceRoute = ({ children }) => {
       setHasAccess(false);
       setChecking(false);
     }
-  }, [user, location.pathname]);
+  }, [user]);
 
   useEffect(() => {
     if (!user && !loading) {

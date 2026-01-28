@@ -125,19 +125,11 @@ const Dashboard = () => {
     }
   }, []);
 
-  // Redirect based on role (after hooks)
-  if (user?.role === 'DepartmentHead') {
-    return <Navigate to="/department-dashboard" replace />;
-  }
-  if (user?.role === 'Staff') {
-    return <Navigate to="/staff-dashboard" replace />;
-  }
-  if (user?.role === 'Student') {
-    return <Navigate to="/student" replace />;
-  }
-  if (user?.role === 'Instructor') {
-    return <Navigate to="/academy" replace />;
-  }
+  const role = (user?.role ?? '').toString().trim().toLowerCase();
+  if (role === 'departmenthead') return <Navigate to="/department-dashboard" replace />;
+  if (role === 'staff') return <Navigate to="/staff-dashboard" replace />;
+  if (role === 'student') return <Navigate to="/student" replace />;
+  if (role === 'instructor') return <Navigate to="/academy" replace />;
 
   const handleSearch = async (e) => {
     e.preventDefault();

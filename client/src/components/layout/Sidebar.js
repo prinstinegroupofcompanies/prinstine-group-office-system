@@ -340,6 +340,11 @@ const Sidebar = () => {
             <div className="sidebar-user-info">
               <div className="sidebar-user-name">{user?.name || user?.email || 'User'}</div>
               <div className="sidebar-user-role">{(user?.role || '').toString()}</div>
+              {(user?.department || user?.position) && (
+                <div className="sidebar-user-dept small text-muted">
+                  {[user.position, user.department].filter(Boolean).join(' • ')}
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -354,18 +359,15 @@ const Sidebar = () => {
                 roleOk = hasStaffManagementAccess;
               } else if (item.studentPayment) {
                 roleOk = hasStudentPaymentAccess;
+              } else if (item.finance) {
+                roleOk = hasFinanceAccess;
               } else {
                 roleOk = hasRole(item.roles);
               }
               
               // Check additional access requirements
               const academyOk = !item.academy || hasAcademyAccess || item.instructorAcademy === true;
-              const userEmail = ((user?.email ?? '') + '').toLowerCase().trim();
-              const financeOk = !item.finance
-                ? true
-                : userEmail === 'sean@prinstinegroup.org'
-                  ? false
-                  : hasFinanceAccess;
+              const financeOk = !item.finance || hasFinanceAccess;
               const studentPortalOk = !item.studentPortal || normalizeRole(user?.role) === 'student';
               
               return roleOk && academyOk && financeOk && studentPortalOk;

@@ -105,10 +105,11 @@ async function isAcademyStaff(user) {
 // ========== STUDENTS ==========
 
 // Resolve current student record (students row) for req.user; requires role Student.
+// Returns student even when approved = 0 (pending) so they can log in and see "pending approval".
 async function getCurrentStudent(req) {
   if (req.user.role !== 'Student') return null;
   return db.get(
-    'SELECT s.*, u.name, u.email, u.phone, u.profile_image FROM students s JOIN users u ON s.user_id = u.id WHERE s.user_id = ? AND s.approved = 1',
+    'SELECT s.*, u.name, u.email, u.phone, u.profile_image FROM students s JOIN users u ON s.user_id = u.id WHERE s.user_id = ?',
     [req.user.id]
   );
 }
@@ -119,7 +120,7 @@ async function getCurrentStudent(req) {
 router.get('/students/me', authenticateToken, requireRole('Student'), async (req, res) => {
   try {
     const student = await getCurrentStudent(req);
-    if (!student) return res.status(404).json({ error: 'Student record not found or not approved' });
+    if (!student) return res.status(404).json({ error: 'Student record not found' });
     res.json({ student });
   } catch (e) {
     console.error('Get students/me error:', e);
@@ -448,12 +449,13 @@ router.post('/students', authenticateToken, requireRole('Admin', 'Instructor', '
 
     const { hashPassword } = require('../utils/auth');
     const passwordHash = await hashPassword(password || 'Student@123');
+    const emailToStore = normEmail || (email || '').toString().trim();
 
     // Create user - if pending approval, set is_active to 0
     const userResult = await db.run(
       `INSERT INTO users (email, username, password_hash, role, name, phone, profile_image, is_active, email_verified)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)`,
-      [email, username || email.split('@')[0], passwordHash, 'Student', name, phone || null, profile_image || null, approved]
+      [emailToStore, username || emailToStore.split('@')[0], passwordHash, 'Student', name, phone || null, profile_image || null, approved]
     );
 
     const studentId = generateStudentId();
