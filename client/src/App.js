@@ -39,6 +39,7 @@ import PettyCashLedger from './pages/finance/PettyCashLedger';
 import AssetRegistry from './pages/finance/AssetRegistry';
 import MyReportsHistory from './pages/reports/MyReportsHistory';
 import FinanceRoute from './components/FinanceRoute';
+import StaffRoute from './components/StaffRoute';
 import CallMemoHistory from './pages/callMemos/CallMemoHistory';
 import ProposalHistory from './pages/proposals/ProposalHistory';
 import MeetingHistory from './pages/meetings/MeetingHistory';
@@ -85,8 +86,8 @@ function App() {
                           <Route path="/users" element={<PrivateRoute requiredRole="Admin"><UserManagement /></PrivateRoute>} />
                           <Route path="/departments" element={<PrivateRoute requiredRole="Admin"><DepartmentManagement /></PrivateRoute>} />
                           <Route path="/departments/view/:id" element={<PrivateRoute requiredRole="Admin"><DepartmentView /></PrivateRoute>} />
-                          <Route path="/staff" element={<PrivateRoute requiredRole="Admin"><StaffManagement /></PrivateRoute>} />
-                          <Route path="/staff/view/:id" element={<PrivateRoute requiredRole="Admin"><StaffView /></PrivateRoute>} />
+                          <Route path="/staff" element={<StaffRoute><StaffManagement /></StaffRoute>} />
+                          <Route path="/staff/view/:id" element={<StaffRoute><StaffView /></StaffRoute>} />
                           <Route path="/clients" element={<PrivateRoute><ClientManagement /></PrivateRoute>} />
                           <Route path="/clients/view/:id" element={<PrivateRoute><ClientView /></PrivateRoute>} />
                           <Route path="/partners" element={<PartnerManagement />} />

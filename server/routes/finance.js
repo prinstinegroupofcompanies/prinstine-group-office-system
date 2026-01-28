@@ -26,13 +26,18 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage, limits: { fileSize: 10 * 1024 * 1024 } }); // 10MB limit
 
+// Emails with explicit finance access (e.g. Assistant Finance Officer)
+const FINANCE_EMAILS = ['sean@prinstinegroup.org'];
+
 // Helper function to check if user is Finance staff (Assistant Finance Officer, Finance Department Head, or Admin)
 async function isFinanceStaff(user) {
-  if (user.role === 'Admin') return true;
+  if (!user) return false;
+  const email = (user.email || '').toLowerCase().trim();
+  if (user.role === 'Admin' || FINANCE_EMAILS.includes(email)) return true;
   if (user.role === 'DepartmentHead') {
     const dept = await db.get(
       'SELECT name FROM departments WHERE manager_id = ? OR LOWER(TRIM(head_email)) = ?',
-      [user.id, user.email.toLowerCase().trim()]
+      [user.id, email]
     );
     return dept && dept.name.toLowerCase().includes('finance');
   }

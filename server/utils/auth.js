@@ -28,7 +28,8 @@ function generateToken(user) {
     id: user.id,
     email: user.email,
     role: user.role,
-    username: user.username
+    username: user.username,
+    name: user.name || null
   };
   return jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
 }
@@ -68,17 +69,34 @@ function authenticateToken(req, res, next) {
  * Middleware to check role permissions
  */
 function requireRole(...allowedRoles) {
+  const flat = allowedRoles.flat();
   return (req, res, next) => {
     if (!req.user) {
       return res.status(401).json({ error: 'Authentication required' });
     }
 
-    if (!allowedRoles.includes(req.user.role)) {
+    if (!flat.includes(req.user.role)) {
       return res.status(403).json({ error: 'Insufficient permissions' });
     }
 
     next();
   };
+}
+
+/**
+ * Middleware: Allow Admin, HumanResourcesDepartmentHead, or HR Officer by email (samantha@prinstinegroup.org)
+ */
+function requireStaffManagement(req, res, next) {
+  if (!req.user) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+  const email = (req.user.email || '').toLowerCase().trim();
+  const allowed = ['Admin', 'HumanResourcesDepartmentHead'].includes(req.user.role) ||
+    email === 'samantha@prinstinegroup.org';
+  if (!allowed) {
+    return res.status(403).json({ error: 'Insufficient permissions for staff management' });
+  }
+  next();
 }
 
 /**
@@ -119,6 +137,7 @@ module.exports = {
   verifyToken,
   authenticateToken,
   requireRole,
+  requireStaffManagement,
   checkPermission,
   requirePermission
 };

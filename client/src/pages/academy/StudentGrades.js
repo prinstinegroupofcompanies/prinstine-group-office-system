@@ -1,12 +1,22 @@
 // src/pages/StudentGrades.js
 import React, { useState, useEffect } from 'react';
 import api from '../config/api'; // Make sure your API config is correct
+import { useAuth } from '../../hooks/useAuth';
+import { isAcademyStaff as isAcademyStaffUtils } from '../../utils/academyUtils';
+import { useNavigate } from 'react-router-dom';
 
 const StudentGrades = () => {
+  const navigate = useNavigate();
   const [grades, setGrades] = useState([]);
   const [loading, setLoading] = useState(true);
+  const { user } = useAuth();
+  const isAcademyStaff = isAcademyStaffUtils(user);
 
   useEffect(() => {
+    if (!isAcademyStaff) {
+      navigate('/academy');
+      return;
+    }
     const fetchGrades = async () => {
       try {
         const res = await api.get('/academy/grades'); // Replace with your real endpoint

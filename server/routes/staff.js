@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { body, validationResult } = require('express-validator');
 const db = require('../config/database');
-const { authenticateToken, requireRole, requirePermission } = require('../utils/auth');
+const { authenticateToken, requireRole, requireStaffManagement } = require('../utils/auth');
 const { logAction } = require('../utils/audit');
 const { hashPassword } = require('../utils/auth');
 const crypto = require('crypto');
@@ -12,8 +12,11 @@ function generateStaffId() {
   return 'STF-' + Date.now().toString().slice(-8) + '-' + crypto.randomBytes(2).toString('hex').toUpperCase();
 }
 
-// Get all staff (Admin and Human Resources Department Head can see all, Staff can see their own)
-router.get('/', authenticateToken, requireRole(['Admin', 'HumanResourcesDepartmentHead']), async (req, res) => {
+const HR_OFFICER_EMAIL = 'samantha@prinstinegroup.org';
+const isHROfficer = (user) => (user?.email || '').toLowerCase().trim() === HR_OFFICER_EMAIL;
+
+// Get all staff (Admin, HR Officer, and Human Resources Department Head can see all; Staff can see their own)
+router.get('/', authenticateToken, requireStaffManagement, async (req, res) => {
   try {
     const { department, employment_type, search } = req.query;
     let query = `
@@ -38,8 +41,10 @@ router.get('/', authenticateToken, requireRole(['Admin', 'HumanResourcesDepartme
       params.push(searchTerm, searchTerm, searchTerm);
     }
 
-    // DepartmentHead can only see staff from their department
-    if (req.user.role === 'HumanResourcesDepartmentHead') {
+    // HR Officer (by email) has full access like Admin
+    if (isHROfficer(req.user)) {
+      // No additional filter - see all
+    } else if (req.user.role === 'HumanResourcesDepartmentHead') {
       // Check if head_email column exists
       const deptTableInfo = await db.all("PRAGMA table_info(departments)");
       const deptColumnNames = deptTableInfo.map(col => col.name);
@@ -65,11 +70,10 @@ router.get('/', authenticateToken, requireRole(['Admin', 'HumanResourcesDepartme
         params.push(dept.name);
       }
     } else if (req.user.role === 'Staff') {
-      // Staff can only see their own staff record
+      // Staff (non–HR Officer) can only see their own staff record
       query += ' AND s.user_id = ?';
       params.push(req.user.id);
-    } else if (req.user.role !== 'Admin' && req.user.role !== 'HumanResourcesDepartmentHead' && req.user.role !== 'DepartmentHead' && req.user.role !== 'Staff') {
-      // Other roles cannot access
+    } else if (req.user.role !== 'Admin' && req.user.role !== 'HumanResourcesDepartmentHead') {
       return res.status(403).json({ error: 'Insufficient permissions' });
     }
 
@@ -77,10 +81,11 @@ router.get('/', authenticateToken, requireRole(['Admin', 'HumanResourcesDepartme
 
     const staff = await db.all(query, params);
     
-    // If Admin or Finance Head, also include Department Heads and Admin users who don't have staff records
-    if (req.user.role === 'Admin' || 
-        (req.user.role === 'HumanResourcesDepartmentHead' && 
-         req.user.email && req.user.email.toLowerCase().includes('human resources'))) {
+    // Include Dept Heads + Admins without staff records for Admin, HR Officer, or HR Dept Head
+    const fullAccess = req.user.role === 'Admin' || isHROfficer(req.user) ||
+      (req.user.role === 'HumanResourcesDepartmentHead' &&
+       (req.user.email || '').toLowerCase().includes('human resources'));
+    if (fullAccess) {
       try {
         // Include Human Resources Department Heads who don't have staff records
         const deptHeadsQuery = `
@@ -144,7 +149,7 @@ router.get('/', authenticateToken, requireRole(['Admin', 'HumanResourcesDepartme
 });
 
 // Get single staff member
-router.get('/:id', authenticateToken, requireRole(['Admin', 'HumanResourcesDepartmentHead']), async (req, res) => {
+router.get('/:id', authenticateToken, requireStaffManagement, async (req, res) => {
   try {
     const staffId = req.params.id;
 
@@ -160,9 +165,11 @@ router.get('/:id', authenticateToken, requireRole(['Admin', 'HumanResourcesDepar
       return res.status(404).json({ error: 'Staff member information not found' });
     }
 
-    // Check permissions - Admin and Human Resources Department Head can see all, Staff can see themselves
-    if (req.user.role !== 'Admin' && req.user.role !== 'HumanResourcesDepartmentHead' && staff.user_id !== req.user.id && (req.user.role !== 'DepartmentHead' || staff.department !== req.user.department)) {
-      return res.status(403).json({ error: 'You do not have permission to view this staff member information. Only Admin and Human Resources Department Head can view all staff member information, and Department Head can view their own department\'s staff member information.' });
+    const canViewAll = req.user.role === 'Admin' || req.user.role === 'HumanResourcesDepartmentHead' || isHROfficer(req.user);
+    const ownRecord = staff.user_id === req.user.id;
+    const deptHeadView = req.user.role === 'DepartmentHead' && staff.department === req.user.department;
+    if (!canViewAll && !ownRecord && !deptHeadView) {
+      return res.status(403).json({ error: 'You do not have permission to view this staff member.' });
     }
 
     res.json({ staff });
@@ -177,8 +184,8 @@ router.get('/:id', authenticateToken, requireRole(['Admin', 'HumanResourcesDepar
   }
 });
 
-// Create staff member (Admin and Human Resources Department Head only)
-router.post('/', authenticateToken, requireRole(['Admin', 'HumanResourcesDepartmentHead']), [
+// Create staff member (Admin, HR Officer, and Human Resources Department Head)
+router.post('/', authenticateToken, requireStaffManagement, [
   body('email').isEmail().normalizeEmail(),
   body('name').trim().notEmpty(),
 ], async (req, res) => {
@@ -342,8 +349,8 @@ router.post('/', authenticateToken, requireRole(['Admin', 'HumanResourcesDepartm
   }
 });
 
-// Update staff member information (Admin and Human Resources Department Head only)
-router.put('/:id', authenticateToken, requireRole(['Admin', 'HumanResourcesDepartmentHead']), async (req, res) => {
+// Update staff member information (Admin, HR Officer, and Human Resources Department Head)
+router.put('/:id', authenticateToken, requireStaffManagement, async (req, res) => {
   try {
     const staffId = req.params.id;
     const updates = req.body;
@@ -351,8 +358,10 @@ router.put('/:id', authenticateToken, requireRole(['Admin', 'HumanResourcesDepar
     const staff = await db.get('SELECT user_id, id FROM staff WHERE id = ? OR staff_id = ?', [staffId, staffId]);
     if (!staff) {
       return res.status(404).json({ error: 'Staff member information not found' });
-    } else if (staff.user_id !== req.user.id && req.user.role !== 'Admin' && req.user.role !== 'HumanResourcesDepartmentHead') {
-      return res.status(403).json({ error: 'Only Admin and Human Resources Department Head can update staff member information' });
+    }
+    const canEditAll = req.user.role === 'Admin' || req.user.role === 'HumanResourcesDepartmentHead' || isHROfficer(req.user);
+    if (staff.user_id !== req.user.id && !canEditAll) {
+      return res.status(403).json({ error: 'Only Admin, HR Officer, and Human Resources Department Head can update staff member information' });
     }
 
     // Update user info if provided
@@ -550,7 +559,7 @@ router.get('/:id/leaves', authenticateToken, async (req, res) => {
 });
 
 // Create leave request
-router.post('/:id/leaves', authenticateToken, requireRole(['Admin', 'HumanResourcesDepartmentHead']), [
+router.post('/:id/leaves', authenticateToken, requireStaffManagement, [
   body('leave_type').isIn(['Sick', 'Vacation', 'Personal', 'Emergency', 'Other']),
   body('start_date').isISO8601(),
   body('end_date').isISO8601(),
@@ -580,8 +589,8 @@ router.post('/:id/leaves', authenticateToken, requireRole(['Admin', 'HumanResour
   }
 });
 
-// Approve/reject leave request (Admin and Human Resource Department Head only)
-router.put('/leaves/:leaveId', authenticateToken, requireRole(['Admin', 'HumanResourcesDepartmentHead']), [
+// Approve/reject leave request (Admin, HR Officer, and Human Resources Department Head)
+router.put('/leaves/:leaveId', authenticateToken, requireStaffManagement, [
   body('status').isIn(['Approved', 'Rejected'])
 ], async (req, res) => {
   try {

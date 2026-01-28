@@ -265,7 +265,7 @@ const AttendanceHistory = () => {
       alert(`Attendance ${status.toLowerCase()} successfully`);
       setApprovingId(null);
       setApprovalNotes('');
-      if (user.role === 'Admin') {
+      if (user.role === 'Admin' && viewMode === 'admin') {
         fetchAdminView();
       } else {
         fetchAttendance();
@@ -280,21 +280,29 @@ const AttendanceHistory = () => {
     try {
       const params = new URLSearchParams();
       if (adminFilter.user_id) params.append('user_id', adminFilter.user_id);
+      let startDate; let endDate;
       if (adminFilter.week_start) {
         const weekStart = new Date(adminFilter.week_start);
         const weekEnd = new Date(weekStart);
         weekEnd.setDate(weekStart.getDate() + 6);
-        params.append('start_date', weekStart.toISOString().split('T')[0]);
-        params.append('end_date', weekEnd.toISOString().split('T')[0]);
+        startDate = weekStart.toISOString().split('T')[0];
+        endDate = weekEnd.toISOString().split('T')[0];
       } else if (adminFilter.date) {
-        params.append('start_date', adminFilter.date);
-        params.append('end_date', adminFilter.date);
+        startDate = endDate = adminFilter.date;
       } else if (adminFilter.month && adminFilter.year) {
         const startOfMonth = new Date(adminFilter.year, adminFilter.month - 1, 1);
         const endOfMonth = new Date(adminFilter.year, adminFilter.month, 0);
-        params.append('start_date', startOfMonth.toISOString().split('T')[0]);
-        params.append('end_date', endOfMonth.toISOString().split('T')[0]);
+        startDate = startOfMonth.toISOString().split('T')[0];
+        endDate = endOfMonth.toISOString().split('T')[0];
+      } else {
+        const now = new Date();
+        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+        const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+        startDate = startOfMonth.toISOString().split('T')[0];
+        endDate = endOfMonth.toISOString().split('T')[0];
       }
+      params.append('start_date', startDate);
+      params.append('end_date', endDate);
 
       const response = await api.get(`/attendance/export/excel?${params.toString()}`);
       const { data, filename } = response.data;
@@ -313,21 +321,29 @@ const AttendanceHistory = () => {
     try {
       const params = new URLSearchParams();
       if (adminFilter.user_id) params.append('user_id', adminFilter.user_id);
+      let startDate; let endDate;
       if (adminFilter.week_start) {
         const weekStart = new Date(adminFilter.week_start);
         const weekEnd = new Date(weekStart);
         weekEnd.setDate(weekStart.getDate() + 6);
-        params.append('start_date', weekStart.toISOString().split('T')[0]);
-        params.append('end_date', weekEnd.toISOString().split('T')[0]);
+        startDate = weekStart.toISOString().split('T')[0];
+        endDate = weekEnd.toISOString().split('T')[0];
       } else if (adminFilter.date) {
-        params.append('start_date', adminFilter.date);
-        params.append('end_date', adminFilter.date);
+        startDate = endDate = adminFilter.date;
       } else if (adminFilter.month && adminFilter.year) {
         const startOfMonth = new Date(adminFilter.year, adminFilter.month - 1, 1);
         const endOfMonth = new Date(adminFilter.year, adminFilter.month, 0);
-        params.append('start_date', startOfMonth.toISOString().split('T')[0]);
-        params.append('end_date', endOfMonth.toISOString().split('T')[0]);
+        startDate = startOfMonth.toISOString().split('T')[0];
+        endDate = endOfMonth.toISOString().split('T')[0];
+      } else {
+        const now = new Date();
+        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+        const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+        startDate = startOfMonth.toISOString().split('T')[0];
+        endDate = endOfMonth.toISOString().split('T')[0];
       }
+      params.append('start_date', startDate);
+      params.append('end_date', endDate);
 
       const response = await api.get(`/attendance/export/pdf?${params.toString()}`);
       const { data, filename } = response.data;

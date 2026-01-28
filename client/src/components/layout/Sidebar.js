@@ -17,6 +17,7 @@ const Sidebar = () => {
   const [unreadFromAdmin, setUnreadFromAdmin] = useState(0);
   const [hasFinanceAccess, setHasFinanceAccess] = useState(false);
   const [hasAcademyAccess, setHasAcademyAccess] = useState(false);
+  const [hasStaffManagementAccess, setHasStaffManagementAccess] = useState(false);
 
   /* =========================
      ROLE HELPERS
@@ -144,6 +145,7 @@ const checkFinanceAccess = async () => {
     fetchUnreadCount();
     checkFinanceAccess();
     checkAcademyAccess();
+    checkStaffManagementAccess();
 
     if (normalizeRole(user.role) === 'departmenthead') {
       fetchUnreadFromAdmin();
@@ -174,8 +176,8 @@ const checkFinanceAccess = async () => {
     { path: '/academy', label: 'Academy Management', icon: 'bi-mortarboard', roles: ['Admin', 'DepartmentHead', 'Staff'], academy: true },
 
     // Finance menus for Admin, Finance Head, Assistant Finance Officer
-    { path: '/petty-cash', label: 'Petty Cash', icon: 'bi-cash', roles: ['Admin', 'DepartmentHead', 'Assistant Finance Officer'], finance: true },
-    { path: '/asset-registry', label: 'Asset Registry', icon: 'bi-box', roles: ['Admin', 'DepartmentHead', 'Assistant Finance Officer'], finance: true },
+    { path: '/finance/petty-cash', label: 'Petty Cash', icon: 'bi-cash', roles: ['Admin', 'DepartmentHead', 'Assistant Finance Officer'], finance: true },
+    { path: '/finance/assets', label: 'Asset Registry', icon: 'bi-box', roles: ['Admin', 'DepartmentHead', 'Assistant Finance Officer'], finance: true },
     { path: '/finance-reports', label: 'Finance', icon: 'bi-cash-stack', roles: ['Admin', 'DepartmentHead', 'Assistant Finance Officer'], finance: true },
 
     { path: '/communications', label: 'Communications', icon: 'bi-chat', roles: ['*'] },
@@ -184,6 +186,7 @@ const checkFinanceAccess = async () => {
 
     { path: '/users', label: 'Users', icon: 'bi-people', roles: ['Admin'] },
     { path: '/departments', label: 'Departments', icon: 'bi-diagram-3', roles: ['Admin'] },
+    { path: '/staff', label: 'Staff', icon: 'bi-person-badge', roles: ['Admin', 'HumanResourcesDepartmentHead'], staffManagement: true },
   ], []);
 
   /* =========================
@@ -194,11 +197,12 @@ const checkFinanceAccess = async () => {
     <aside className={`sidebar ${collapsed ? 'collapsed' : ''}`}>
       <ul>
         {menuItems
-          .filter(item =>
-            hasRole(item.roles) &&
-            (!item.academy || hasAcademyAccess) &&
-            (!item.finance || hasFinanceAccess)
-          )
+          .filter(item => {
+            const roleOk = item.staffManagement ? hasStaffManagementAccess : hasRole(item.roles);
+            return roleOk &&
+              (!item.academy || hasAcademyAccess) &&
+              (!item.finance || hasFinanceAccess);
+          })
           .map(item => (
             <li key={item.path} className={location.pathname === item.path ? 'active' : ''}>
               <Link to={item.path}>
