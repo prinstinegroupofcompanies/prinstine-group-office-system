@@ -1,7 +1,7 @@
 /* Sidebar.js - Fixed version */
 
-import React, { useState, useEffect, useMemo } from 'react';
-import { Link, useNavigate, useLocation } from 'react-router-dom';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import api from '../../config/api';
 import { getSocket } from '../../config/socket';
@@ -9,10 +9,8 @@ import './Sidebar.css';
 
 const Sidebar = () => {
   const { user, logout } = useAuth();
-  const navigate = useNavigate();
   const location = useLocation();
 
-  const [collapsed, setCollapsed] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const [unreadFromAdmin, setUnreadFromAdmin] = useState(0);
   const [hasFinanceAccess, setHasFinanceAccess] = useState(false);
@@ -37,7 +35,7 @@ const Sidebar = () => {
      ACADEMY ACCESS CHECK
   ========================= */
 
-  const checkAcademyAccess = async () => {
+  const checkAcademyAccess = useCallback(async () => {
     if (!user) return false;
 
     if (normalizeRole(user.role) === 'admin') return setHasAcademyAccess(true);
@@ -72,13 +70,13 @@ const Sidebar = () => {
     }
 
     setHasAcademyAccess(false);
-  };
+  }, [user]);
 
   /* =========================
-   FINANCE ACCESS CHECK - Updated
-========================= */
+     FINANCE ACCESS CHECK - Updated
+  ========================= */
 
-const checkFinanceAccess = async () => {
+  const checkFinanceAccess = useCallback(async () => {
   if (!user) return setHasFinanceAccess(false);
 
   const userRole = normalizeRole(user.role);
@@ -110,14 +108,14 @@ const checkFinanceAccess = async () => {
     console.error('Finance access check failed:', err);
   }
 
-  setHasFinanceAccess(false);
-};
+    setHasFinanceAccess(false);
+  }, [user]);
 
   /* =========================
      STAFF MANAGEMENT ACCESS (Admin, HR Dept Head, HR Officer by email)
   ========================= */
   const HR_OFFICER_EMAILS = ['samantha@prinstinegroup.org'];
-  const checkStaffManagementAccess = () => {
+  const checkStaffManagementAccess = useCallback(() => {
     if (!user) return setHasStaffManagementAccess(false);
     const email = ((user.email ?? '') + '').toLowerCase().trim();
     const role = normalizeRole(user.role);
@@ -126,13 +124,13 @@ const checkFinanceAccess = async () => {
       role === 'humanresourcesdepartmenthead' ||
       HR_OFFICER_EMAILS.includes(email);
     setHasStaffManagementAccess(!!ok);
-  };
+  }, [user]);
 
   /* =========================
      STUDENT PAYMENT ACCESS (Finance head, Sean, Academy head, cvulue)
   ========================= */
   const STUDENT_PAYMENT_EMAILS = ['sean@prinstinegroup.org', 'cvulue@prinstinegroup.org'];
-  const checkStudentPaymentAccess = async () => {
+  const checkStudentPaymentAccess = useCallback(async () => {
     if (!user) return setHasStudentPaymentAccess(false);
     const email = ((user.email ?? '') + '').toLowerCase().trim();
     const role = normalizeRole(user.role);
@@ -153,20 +151,20 @@ const checkFinanceAccess = async () => {
       console.error('Student payment access check failed:', err);
     }
     setHasStudentPaymentAccess(false);
-  };
+  }, [user]);
 
   /* =========================
      NOTIFICATIONS
   ========================= */
 
-  const fetchUnreadCount = async () => {
+  const fetchUnreadCount = useCallback(async () => {
     try {
       const res = await api.get('/notifications/unread-count');
       setUnreadCount(res.data.count || 0);
     } catch {}
-  };
+  }, []);
 
-  const fetchUnreadFromAdmin = async () => {
+  const fetchUnreadFromAdmin = useCallback(async () => {
     try {
       const res = await api.get('/notifications?limit=100');
       const unread = res.data.notifications.filter(
@@ -174,7 +172,7 @@ const checkFinanceAccess = async () => {
       );
       setUnreadFromAdmin(unread.length);
     } catch {}
-  };
+  }, []);
 
   /* =========================
      EFFECTS
@@ -204,7 +202,7 @@ const checkFinanceAccess = async () => {
     socket.on('notification', handler);
 
     return () => socket.off('notification', handler);
-  }, [user]);
+  }, [user, fetchUnreadCount, checkFinanceAccess, checkAcademyAccess, checkStaffManagementAccess, checkStudentPaymentAccess, fetchUnreadFromAdmin]);
 
   /* =========================
      MENU CONFIG
@@ -265,7 +263,7 @@ const checkFinanceAccess = async () => {
   ========================= */
 
   return (
-    <aside className={`sidebar ${collapsed ? 'collapsed' : ''}`}>
+    <aside className="sidebar">
       <ul>
         {menuItems
           .filter(item => {

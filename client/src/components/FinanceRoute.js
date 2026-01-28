@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import api from '../config/api';
@@ -8,17 +8,7 @@ const FinanceRoute = ({ children }) => {
   const [hasAccess, setHasAccess] = useState(false);
   const [checking, setChecking] = useState(true);
 
-  useEffect(() => {
-    if (!user && !loading) {
-      setChecking(false);
-      return;
-    }
-    if (user && !loading) {
-      checkFinanceAccess();
-    }
-  }, [user, loading]);
-
-  const checkFinanceAccess = async () => {
+  const checkFinanceAccess = useCallback(async () => {
     try {
       const email = ((user?.email ?? '') + '').toLowerCase().trim();
       const role = (user?.role ?? '').toString();
@@ -65,7 +55,17 @@ const FinanceRoute = ({ children }) => {
       setHasAccess(false);
       setChecking(false);
     }
-  };
+  }, [user]);
+
+  useEffect(() => {
+    if (!user && !loading) {
+      setChecking(false);
+      return;
+    }
+    if (user && !loading) {
+      checkFinanceAccess();
+    }
+  }, [user, loading, checkFinanceAccess]);
 
   if (loading || checking) {
     return (
