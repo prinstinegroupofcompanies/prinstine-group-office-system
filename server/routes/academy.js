@@ -429,6 +429,7 @@ router.post('/students', authenticateToken, requireRole('Admin', 'Instructor', '
 
     const { email, name, username, phone, enrollment_date, courses_enrolled, password, status, profile_image, cohort_id, period } = req.body;
 
+    const normProfileImage = (profile_image != null && String(profile_image).trim() !== '') ? String(profile_image).trim() : null;
     const normEmail = (email || '').toString().toLowerCase().trim();
     const existingUser = await db.get('SELECT id FROM users WHERE LOWER(TRIM(email)) = ?', [normEmail]);
     if (existingUser) {
@@ -451,11 +452,11 @@ router.post('/students', authenticateToken, requireRole('Admin', 'Instructor', '
     const passwordHash = await hashPassword(password || 'Student@123');
     const emailToStore = normEmail || (email || '').toString().trim() || null;
 
-    // Create user - if pending approval, set is_active to 0
+    // Create user - if pending approval, set is_active to 0. profile_image stored permanently.
     const userResult = await db.run(
       `INSERT INTO users (email, username, password_hash, role, name, phone, profile_image, is_active, email_verified)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)`,
-      [emailToStore, username || emailToStore.split('@')[0], passwordHash, 'Student', name, phone || null, profile_image || null, approved]
+      [emailToStore, username || emailToStore.split('@')[0], passwordHash, 'Student', name, phone || null, normProfileImage, approved]
     );
 
     const studentId = generateStudentId();
@@ -640,7 +641,10 @@ router.put('/students/:id', authenticateToken, requireRole('Admin', 'Instructor'
       return res.status(403).json({ error: 'Only Admin can approve/reject students' });
     }
 
-    // Update user info if provided
+    // Update user info if provided (profile_image stored permanently in users table)
+    const normProfileImage = (updates.profile_image != null && String(updates.profile_image).trim() !== '')
+      ? String(updates.profile_image).trim()
+      : null;
     if (updates.name || updates.phone || updates.profile_image !== undefined) {
       const userUpdates = [];
       const userParams = [];
@@ -654,7 +658,7 @@ router.put('/students/:id', authenticateToken, requireRole('Admin', 'Instructor'
       }
       if (updates.profile_image !== undefined) {
         userUpdates.push('profile_image = ?');
-        userParams.push(updates.profile_image);
+        userParams.push(normProfileImage);
       }
       if (userUpdates.length > 0) {
         userParams.push(student.user_id);

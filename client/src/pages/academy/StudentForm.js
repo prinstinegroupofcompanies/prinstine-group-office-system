@@ -71,8 +71,12 @@ const StudentForm = ({ student, onClose }) => {
   };
 
   const handleImageUpload = async (e) => {
-    const file = e.target.files[0];
+    const file = e.target.files?.[0];
     if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      setError('Please select an image file (JPEG, PNG, GIF, WebP).');
+      return;
+    }
     if (file.size > 5 * 1024 * 1024) {
       setError('Image must be less than 5MB');
       return;
@@ -85,8 +89,13 @@ const StudentForm = ({ student, onClose }) => {
       fd.append('type', 'student');
 
       const res = await api.post('/upload/entity-image', fd);
-      const url = res.data?.imageUrl || '';
+      const url = (res.data?.imageUrl ?? res.data?.url ?? '').toString().trim();
+      if (!url) {
+        setError('Upload succeeded but no image URL was returned.');
+        return;
+      }
       setFormData(prev => ({ ...prev, profile_image: url }));
+      e.target.value = '';
     } catch (err) {
       setError('Failed to upload image: ' + (err.response?.data?.error || err.message));
     } finally {
@@ -96,7 +105,7 @@ const StudentForm = ({ student, onClose }) => {
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
-
+    if (name === 'courses_enrolled' && type !== 'checkbox') return;
     if (type === 'checkbox') {
       const id = parseInt(value);
       setFormData(prev => ({
@@ -120,6 +129,9 @@ const StudentForm = ({ student, onClose }) => {
     setError('');
 
     try {
+      const profileImageValue = (formData.profile_image != null && String(formData.profile_image).trim() !== '')
+        ? String(formData.profile_image).trim()
+        : null;
       const payload = {
         name: formData.name,
         email: formData.email,
@@ -127,7 +139,7 @@ const StudentForm = ({ student, onClose }) => {
         phone: formData.phone || undefined,
         enrollment_date: formData.enrollment_date || undefined,
         status: formData.status || 'Active',
-        profile_image: (formData.profile_image != null && String(formData.profile_image).trim()) ? String(formData.profile_image).trim() : null,
+        profile_image: profileImageValue,
         cohort_id: formData.cohort_id || null,
         period: formData.period || null,
         courses_enrolled: Array.isArray(formData.courses_enrolled) ? formData.courses_enrolled : [],
@@ -212,21 +224,39 @@ const StudentForm = ({ student, onClose }) => {
                 {student && <small className="form-text text-muted">Email cannot be changed</small>}
               </div>
             </div>
-            <input className="form-control mb-2" name="name" placeholder="Full Name" value={formData.name} onChange={handleChange} required />
-            <input className="form-control mb-2" name="email" type="email" placeholder="Email" value={formData.email} onChange={handleChange} required />
-            <input className="form-control mb-2" name="phone" type="tel" placeholder="Phone" value={formData.phone} onChange={handleChange} />
-            <input className="form-control mb-2" name="enrollment_date" type="date" placeholder="Enrollment Date" value={formData.enrollment_date} onChange={handleChange} />
-            <input className="form-control mb-2" name="status" type="text" placeholder="Status" value={formData.status} onChange={handleChange} />
-            <input className="form-control mb-2" name="courses_enrolled" type="text" placeholder="Courses Enrolled" value={formData.courses_enrolled} onChange={handleChange} />
-            <input className="form-control mb-2" name="cohort_id" type="text" placeholder="Cohort ID" value={formData.cohort_id} onChange={handleChange} />
-            <input className="form-control mb-2" name="period" type="text" placeholder="Period" value={formData.period} onChange={handleChange} />
-            <input className="form-control mb-2" name="date_of_birth" type="date" placeholder="Date of Birth" value={formData.date_of_birth} onChange={handleChange} />
-            <input className="form-control mb-2" name="place_of_birth" type="text" placeholder="Place of Birth" value={formData.place_of_birth} onChange={handleChange} />
-            <input className="form-control mb-2" name="nationality" type="text" placeholder="Nationality" value={formData.nationality} onChange={handleChange} />
-            <input className="form-control mb-2" name="gender" type="text" placeholder="Gender" value={formData.gender} onChange={handleChange} />
-            <input className="form-control mb-2" name="marital_status" type="text" placeholder="Marital Status" value={formData.marital_status} onChange={handleChange} />
-            <input className="form-control mb-2" name="national_id" type="text" placeholder="National ID" value={formData.national_id} onChange={handleChange} />
-            <input className="form-control mb-2" name="password" type="password" placeholder="Password" value={formData.password} onChange={handleChange} />
+            <div className="row">
+              <div className="col-md-6 mb-3">
+                <label className="form-label">Phone</label>
+                <input type="tel" className="form-control" name="phone" value={formData.phone} onChange={handleChange} />
+              </div>
+              <div className="col-md-6 mb-3">
+                <label className="form-label">Enrollment Date</label>
+                <input type="date" className="form-control" name="enrollment_date" value={formData.enrollment_date} onChange={handleChange} />
+              </div>
+            </div>
+            <div className="row">
+              <div className="col-md-4 mb-3">
+                <label className="form-label">Status</label>
+                <input type="text" className="form-control" name="status" value={formData.status} onChange={handleChange} />
+              </div>
+              <div className="col-md-4 mb-3">
+                <label className="form-label">Cohort</label>
+                <select className="form-select" name="cohort_id" value={formData.cohort_id || ''} onChange={handleChange}>
+                  <option value="">None</option>
+                  {cohorts.map(c => <option key={c.id} value={c.id}>{c.name || c.code}</option>)}
+                </select>
+              </div>
+              <div className="col-md-4 mb-3">
+                <label className="form-label">Period</label>
+                <input type="text" className="form-control" name="period" value={formData.period} onChange={handleChange} />
+              </div>
+            </div>
+            {!student && (
+              <div className="mb-3">
+                <label className="form-label">Password</label>
+                <input type="password" className="form-control" name="password" value={formData.password} onChange={handleChange} placeholder="Leave blank for default" />
+              </div>
+            )}
             {/* COURSES */}
             <div className="border p-2 mb-2" style={{ maxHeight: 200, overflowY: 'auto' }}>
               {courses.map((c) => (

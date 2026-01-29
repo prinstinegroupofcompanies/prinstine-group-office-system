@@ -100,8 +100,9 @@ const StudentPortal = () => {
     return 'Good evening';
   })();
 
-  const profileImageUrl = student.profile_image && String(student.profile_image).trim() !== '' && !profileImgError
-    ? (student.profile_image.startsWith('http') ? student.profile_image : normalizeUrl(student.profile_image))
+  const rawProfileImage = student.profile_image != null ? String(student.profile_image).trim() : '';
+  const profileImageUrl = rawProfileImage !== '' && !profileImgError
+    ? (rawProfileImage.startsWith('http') ? rawProfileImage : normalizeUrl(rawProfileImage))
     : null;
 
   return (

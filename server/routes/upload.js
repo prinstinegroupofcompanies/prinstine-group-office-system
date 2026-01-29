@@ -115,6 +115,7 @@ router.post('/entity-image', authenticateToken, uploadEntityImage.single('image'
     res.json({
       message: 'Image uploaded successfully',
       imageUrl: relativePath,
+      url: relativePath,
       filename: req.file.filename
     });
   } catch (error) {
