@@ -54,6 +54,7 @@ import PettyCash from './pages/finance/PettyCash';
 import Appraisals from './pages/appraisals/Appraisals';
 import StudentPaymentManagement from './pages/departments/StudentPaymentManagement';
 import StudentPortal from './pages/academy/StudentPortal';
+import './pages/academy/StudentPortal.css';
 import StudentCertificates from './pages/academy/StudentCertificates';
 import StudentCourses from './pages/academy/StudentCourses';
 import StudentBilling from './pages/academy/StudentBilling';

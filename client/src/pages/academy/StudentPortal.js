@@ -105,12 +105,26 @@ const StudentPortal = () => {
     : null;
 
   return (
-    <div className="student-portal">
+    <div className="student-portal" data-page="student-dashboard" data-portal-version="2">
       <div className="container-fluid">
         {/* Welcome header */}
-        <div className="student-portal__welcome">
-          <h1>{greeting}, {displayName}</h1>
-          <p>Welcome to your student portal. View courses, grades, billing, and certificates.</p>
+        <div
+          className="student-portal__welcome"
+          style={{
+            marginBottom: '1.5rem',
+            padding: '1.25rem 1.5rem',
+            background: 'linear-gradient(135deg, #0d6efd 0%, #0a58ca 100%)',
+            borderRadius: '12px',
+            color: '#fff',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.06)'
+          }}
+        >
+          <h1 style={{ fontSize: '1.5rem', fontWeight: 600, margin: '0 0 0.25rem 0' }}>
+            {greeting}, {displayName}
+          </h1>
+          <p style={{ margin: 0, opacity: 0.92, fontSize: '0.95rem' }}>
+            Welcome to your student portal. View courses, grades, billing, and certificates.
+          </p>
         </div>
 
         {isPending && (
