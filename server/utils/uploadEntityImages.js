@@ -1,7 +1,7 @@
 /**
  * Multer config for entity profile images (staff, student, instructor, client, partner, user).
- * Storage: uploads/entity-images/ - permanent, separate from profile-images (current user).
- * Used by forms when creating/editing entities; does NOT update any user. Caller saves URL via create/update API.
+ * Storage: uploads/entity-images/ - permanent, on-disk. Never deleted when updating profile images.
+ * Used by forms when creating/editing entities; caller saves URL via create/update API.
  */
 
 const multer = require('multer');

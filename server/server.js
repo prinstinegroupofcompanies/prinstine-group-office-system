@@ -109,6 +109,12 @@ app.use(express.urlencoded({
   limit: '10mb' 
 }));
 
+// Ensure permanent storage dirs exist (entity-images: student/instructor/staff profile photos)
+const entityImagesDir = path.join(__dirname, '../uploads/entity-images');
+if (!fs.existsSync(entityImagesDir)) {
+  fs.mkdirSync(entityImagesDir, { recursive: true });
+}
+
 // Serve uploaded files
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 app.use('/uploads/claims', express.static(path.join(__dirname, '../uploads/claims')));

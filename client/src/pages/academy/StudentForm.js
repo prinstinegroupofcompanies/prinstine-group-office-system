@@ -127,7 +127,7 @@ const StudentForm = ({ student, onClose }) => {
         phone: formData.phone || undefined,
         enrollment_date: formData.enrollment_date || undefined,
         status: formData.status || 'Active',
-        profile_image: formData.profile_image || undefined,
+        profile_image: (formData.profile_image != null && String(formData.profile_image).trim()) ? String(formData.profile_image).trim() : null,
         cohort_id: formData.cohort_id || null,
         period: formData.period || null,
         courses_enrolled: Array.isArray(formData.courses_enrolled) ? formData.courses_enrolled : [],
@@ -169,19 +169,24 @@ const StudentForm = ({ student, onClose }) => {
             {/* IMAGE */}
             <div className="mb-3">
               <label className="form-label">Student Profile Image</label>
-              <div className="mb-2">
-                {formData.profile_image && formData.profile_image.trim() !== '' ? (
-                  <img
-                    src={formData.profile_image.startsWith('http') ? formData.profile_image : normalizeUrl(formData.profile_image)}
-                    alt={formData.name || 'Student'}
-                    className="img-fluid rounded-circle mb-2"
-                    style={{ width: '100px', height: '100px', borderRadius: '50%', objectFit: 'cover', border: '3px solid #dee2e6' }}
-                    onError={(e) => { e.target.style.display = 'none'; }}
-                  />
+              <div className="mb-2 d-flex align-items-center gap-2 flex-wrap">
+                {formData.profile_image && String(formData.profile_image).trim() !== '' ? (
+                  <>
+                    <img
+                      key={formData.profile_image}
+                      src={formData.profile_image.startsWith('http') ? formData.profile_image : normalizeUrl(formData.profile_image)}
+                      alt={formData.name || 'Student'}
+                      className="img-fluid rounded-circle"
+                      style={{ width: '100px', height: '100px', objectFit: 'cover', border: '3px solid #dee2e6' }}
+                      onError={(e) => { e.target.onerror = null; e.target.style.display = 'none'; }}
+                    />
+                    <button type="button" className="btn btn-sm btn-outline-danger" onClick={() => setFormData(prev => ({ ...prev, profile_image: null }))}>
+                      Remove
+                    </button>
+                  </>
                 ) : (
-                  <div className="bg-secondary rounded-circle d-inline-flex align-items-center justify-content-center"
-                       style={{ width: '100px', height: '100px', border: '3px solid #dee2e6' }}>
-                    <i className="bi bi-person text-white" style={{ fontSize: '3rem' }}></i>
+                  <div className="bg-secondary rounded-circle d-inline-flex align-items-center justify-content-center" style={{ width: '100px', height: '100px', border: '3px solid #dee2e6' }}>
+                    <i className="bi bi-person text-white" style={{ fontSize: '3rem' }} />
                   </div>
                 )}
               </div>
@@ -212,7 +217,6 @@ const StudentForm = ({ student, onClose }) => {
             <input className="form-control mb-2" name="phone" type="tel" placeholder="Phone" value={formData.phone} onChange={handleChange} />
             <input className="form-control mb-2" name="enrollment_date" type="date" placeholder="Enrollment Date" value={formData.enrollment_date} onChange={handleChange} />
             <input className="form-control mb-2" name="status" type="text" placeholder="Status" value={formData.status} onChange={handleChange} />
-            <input className="form-control mb-2" name="profile_image" type="text" placeholder="Profile Image" value={formData.profile_image} onChange={handleChange} />
             <input className="form-control mb-2" name="courses_enrolled" type="text" placeholder="Courses Enrolled" value={formData.courses_enrolled} onChange={handleChange} />
             <input className="form-control mb-2" name="cohort_id" type="text" placeholder="Cohort ID" value={formData.cohort_id} onChange={handleChange} />
             <input className="form-control mb-2" name="period" type="text" placeholder="Period" value={formData.period} onChange={handleChange} />

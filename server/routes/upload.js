@@ -103,8 +103,9 @@ router.post('/profile-image', authenticateToken, upload.single('image'), async (
   }
 });
 
-// Upload entity profile image (staff, student, instructor, client, partner, user)
-// Does NOT update any user. Caller includes imageUrl in create/update API. Permanent storage under uploads/entity-images/{type}/
+// Upload entity profile image (staff, student, instructor, client, partner, user).
+// Permanent storage under uploads/entity-images/. Files are never deleted when profile is updated.
+// Caller persists imageUrl via create/update API.
 router.post('/entity-image', authenticateToken, uploadEntityImage.single('image'), (req, res) => {
   try {
     if (!req.file) {

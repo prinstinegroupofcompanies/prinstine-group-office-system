@@ -429,8 +429,8 @@ router.post('/students', authenticateToken, requireRole('Admin', 'Instructor', '
 
     const { email, name, username, phone, enrollment_date, courses_enrolled, password, status, profile_image, cohort_id, period } = req.body;
 
-    // Check if user exists
-    const existingUser = await db.get('SELECT id FROM users WHERE email = ?', [email]);
+    const normEmail = (email || '').toString().toLowerCase().trim();
+    const existingUser = await db.get('SELECT id FROM users WHERE LOWER(TRIM(email)) = ?', [normEmail]);
     if (existingUser) {
       return res.status(400).json({ error: 'User with this email already exists' });
     }
@@ -449,7 +449,7 @@ router.post('/students', authenticateToken, requireRole('Admin', 'Instructor', '
 
     const { hashPassword } = require('../utils/auth');
     const passwordHash = await hashPassword(password || 'Student@123');
-    const emailToStore = normEmail || (email || '').toString().trim();
+    const emailToStore = normEmail || (email || '').toString().trim() || null;
 
     // Create user - if pending approval, set is_active to 0
     const userResult = await db.run(

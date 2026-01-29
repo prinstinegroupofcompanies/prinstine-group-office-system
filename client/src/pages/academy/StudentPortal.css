@@ -1,0 +1,343 @@
+/* Student Portal Dashboard - Comprehensive UI */
+
+.student-portal {
+  --student-primary: #0d6efd;
+  --student-primary-soft: rgba(13, 110, 253, 0.08);
+  --student-success: #198754;
+  --student-success-soft: rgba(25, 135, 84, 0.08);
+  --student-warning: #ffc107;
+  --student-warning-soft: rgba(255, 193, 7, 0.12);
+  --student-info: #0dcaf0;
+  --student-info-soft: rgba(13, 202, 240, 0.08);
+  --student-card-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+  --student-card-shadow-hover: 0 4px 12px rgba(0, 0, 0, 0.08);
+  --student-radius: 12px;
+  --student-radius-sm: 8px;
+}
+
+/* Page container */
+.student-portal {
+  min-height: 100%;
+  padding: 1.5rem 0 2rem;
+  background: linear-gradient(180deg, #f0f4f8 0%, #f8fafc 100%);
+}
+
+/* Welcome header */
+.student-portal__welcome {
+  margin-bottom: 1.5rem;
+  padding: 1.25rem 1.5rem;
+  background: linear-gradient(135deg, var(--student-primary) 0%, #0a58ca 100%);
+  border-radius: var(--student-radius);
+  color: #fff;
+  box-shadow: var(--student-card-shadow);
+}
+
+.student-portal__welcome h1 {
+  font-size: 1.5rem;
+  font-weight: 600;
+  margin: 0 0 0.25rem 0;
+  letter-spacing: -0.02em;
+}
+
+.student-portal__welcome p {
+  margin: 0;
+  opacity: 0.92;
+  font-size: 0.95rem;
+}
+
+/* Pending approval banner */
+.student-portal__pending {
+  margin-bottom: 1.5rem;
+  padding: 1rem 1.25rem;
+  background: var(--student-warning-soft);
+  border: 1px solid rgba(255, 193, 7, 0.4);
+  border-radius: var(--student-radius-sm);
+  color: #856404;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.student-portal__pending i {
+  font-size: 1.25rem;
+  flex-shrink: 0;
+}
+
+/* Profile card */
+.student-portal__profile-card {
+  background: #fff;
+  border-radius: var(--student-radius);
+  box-shadow: var(--student-card-shadow);
+  overflow: hidden;
+  margin-bottom: 1.5rem;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.student-portal__profile-body {
+  padding: 1.5rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1.5rem;
+}
+
+.student-portal__avatar-wrap {
+  flex-shrink: 0;
+  position: relative;
+}
+
+.student-portal__avatar {
+  width: 100px;
+  height: 100px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 3px solid #e9ecef;
+  display: block;
+}
+
+.student-portal__avatar-placeholder {
+  width: 100px;
+  height: 100px;
+  border-radius: 50%;
+  background: linear-gradient(145deg, #e9ecef 0%, #dee2e6 100%);
+  border: 3px solid #e9ecef;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #6c757d;
+  font-size: 2.5rem;
+}
+
+.student-portal__profile-info {
+  flex: 1;
+  min-width: 200px;
+}
+
+.student-portal__profile-name {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: #212529;
+  margin: 0 0 0.25rem 0;
+}
+
+.student-portal__profile-email {
+  color: #6c757d;
+  font-size: 0.9rem;
+  margin: 0 0 0.5rem 0;
+}
+
+.student-portal__profile-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  align-items: center;
+}
+
+.student-portal__badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.35rem 0.75rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+.student-portal__badge--success {
+  background: var(--student-success-soft);
+  color: var(--student-success);
+}
+
+.student-portal__badge--warning {
+  background: var(--student-warning-soft);
+  color: #856404;
+}
+
+.student-portal__profile-id {
+  font-size: 0.85rem;
+  color: #6c757d;
+}
+
+/* Stats row */
+.student-portal__stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1.75rem;
+}
+
+.student-portal__stat-card {
+  background: #fff;
+  border-radius: var(--student-radius-sm);
+  padding: 1rem 1.25rem;
+  box-shadow: var(--student-card-shadow);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  text-align: center;
+}
+
+.student-portal__stat-value {
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: #212529;
+  line-height: 1.2;
+  margin-bottom: 0.25rem;
+}
+
+.student-portal__stat-value--primary {
+  color: var(--student-primary);
+}
+
+.student-portal__stat-value--success {
+  color: var(--student-success);
+}
+
+.student-portal__stat-value--warning {
+  color: #b8860b;
+}
+
+.student-portal__stat-label {
+  font-size: 0.8rem;
+  color: #6c757d;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+/* Section title */
+.student-portal__section-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #212529;
+  margin: 0 0 1rem 0;
+  padding-bottom: 0.5rem;
+  border-bottom: 2px solid var(--student-primary-soft);
+}
+
+/* Quick action cards */
+.student-portal__actions {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 1.25rem;
+}
+
+.student-portal__action-card {
+  display: block;
+  background: #fff;
+  border-radius: var(--student-radius);
+  padding: 1.5rem;
+  text-decoration: none;
+  color: inherit;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  box-shadow: var(--student-card-shadow);
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.student-portal__action-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--student-card-shadow-hover);
+  border-color: rgba(13, 110, 253, 0.2);
+  color: inherit;
+}
+
+.student-portal__action-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: var(--student-radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.5rem;
+  margin-bottom: 1rem;
+  color: #fff;
+}
+
+.student-portal__action-icon--courses {
+  background: linear-gradient(135deg, #0d6efd 0%, #0a58ca 100%);
+}
+
+.student-portal__action-icon--grades {
+  background: linear-gradient(135deg, #198754 0%, #146c43 100%);
+}
+
+.student-portal__action-icon--certificates {
+  background: linear-gradient(135deg, #6f42c1 0%, #5a32a3 100%);
+}
+
+.student-portal__action-icon--billing {
+  background: linear-gradient(135deg, #fd7e14 0%, #e8590c 100%);
+}
+
+.student-portal__action-title {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: #212529;
+  margin: 0 0 0.35rem 0;
+}
+
+.student-portal__action-desc {
+  font-size: 0.875rem;
+  color: #6c757d;
+  margin: 0;
+  line-height: 1.4;
+}
+
+/* Loading state */
+.student-portal__loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 280px;
+  gap: 1rem;
+}
+
+.student-portal__loading .spinner-border {
+  width: 2.5rem;
+  height: 2.5rem;
+  border-width: 0.2em;
+}
+
+.student-portal__loading-text {
+  color: #6c757d;
+  font-size: 0.9rem;
+}
+
+/* Error state */
+.student-portal__error {
+  background: #fff3cd;
+  border: 1px solid #ffc107;
+  border-radius: var(--student-radius-sm);
+  padding: 1.25rem;
+  color: #856404;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .student-portal {
+    padding: 1rem 0 1.5rem;
+  }
+
+  .student-portal__welcome h1 {
+    font-size: 1.25rem;
+  }
+
+  .student-portal__profile-body {
+    flex-direction: column;
+    text-align: center;
+  }
+
+  .student-portal__profile-meta {
+    justify-content: center;
+  }
+
+  .student-portal__stats {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0.75rem;
+  }
+
+  .student-portal__stat-value {
+    font-size: 1.5rem;
+  }
+
+  .student-portal__actions {
+    grid-template-columns: 1fr;
+  }
+}
