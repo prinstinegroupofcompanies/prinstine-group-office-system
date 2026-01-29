@@ -41,7 +41,8 @@ const Sidebar = () => {
 
     if (normalizeRole(user.role) === 'admin') return setHasAcademyAccess(true);
 
-    if (['cvulue@prinstinegroup.org'].includes(user.email?.toLowerCase().trim())) {
+    const academyAllowlistEmails = ['cvulue@prinstinegroup.org', 'fwallace@prinstinegroup.org'];
+    if (academyAllowlistEmails.includes(user.email?.toLowerCase().trim())) {
       return setHasAcademyAccess(true);
     }
 

@@ -192,6 +192,11 @@ router.get('/me', authenticateToken, async (req, res) => {
 
     // For DepartmentHead users, get all departments they manage and set academyAccess
     if (user.role === 'DepartmentHead') {
+      const userEmail = (user.email || '').toLowerCase().trim();
+      const academyHeadEmails = ['fwallace@prinstinegroup.org'];
+      if (academyHeadEmails.includes(userEmail)) {
+        user.academyAccess = true;
+      }
       let depts = [];
       try {
         const deptTableInfo = await db.all("PRAGMA table_info(departments)").catch(() => []);
@@ -200,7 +205,7 @@ router.get('/me', authenticateToken, async (req, res) => {
         if (hasHeadEmail) {
           depts = await db.all(
             'SELECT name FROM departments WHERE manager_id = ? OR LOWER(TRIM(head_email)) = ?',
-            [user.id, (user.email || '').toLowerCase().trim()]
+            [user.id, userEmail]
           );
         } else {
           depts = await db.all('SELECT name FROM departments WHERE manager_id = ?', [user.id]);
@@ -210,8 +215,10 @@ router.get('/me', authenticateToken, async (req, res) => {
       }
       if (Array.isArray(depts) && depts.length > 0) {
         user.department = depts[0].name || null;
-        const academyMatch = /academy|elearning|e-learning|marketing/i;
-        user.academyAccess = depts.some(d => d && d.name && academyMatch.test(d.name));
+        if (!user.academyAccess) {
+          const academyMatch = /academy|elearning|e-learning|marketing/i;
+          user.academyAccess = depts.some(d => d && d.name && academyMatch.test(d.name));
+        }
       }
     }
 
