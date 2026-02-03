@@ -9,7 +9,7 @@ const { authenticateToken } = require('../utils/auth');
 const path = require('path');
 const fs = require('fs');
 
-// Upload profile image - permanently stored on server
+// Upload profile image - stored permanently in database (data URL)
 router.post('/profile-image', authenticateToken, upload.single('image'), async (req, res) => {
   const db = require('../config/database');
   
@@ -45,16 +45,17 @@ router.post('/profile-image', authenticateToken, upload.single('image'), async (
       }
     }
 
-    // Return relative URL in consistent format - stored permanently on server
-    // Format: /uploads/profile-images/profile-{userId}-{timestamp}-{random}.ext
-    const imageUrl = `/uploads/profile-images/${req.file.filename}`;
+    // Convert to data URL for permanent DB storage (avoids ephemeral disk loss)
+    const fileBuffer = fs.readFileSync(req.file.path);
+    const base64 = fileBuffer.toString('base64');
+    const imageUrl = `data:${req.file.mimetype};base64,${base64}`;
     
     console.log('Profile image uploaded:', {
       userId: userId,
       filename: req.file.filename,
       path: req.file.path,
       size: req.file.size,
-      imageUrl: imageUrl
+      imageUrl: imageUrl ? '[data-url]' : null
     });
     
     // Update user's profile_image in database immediately for persistence
@@ -74,10 +75,18 @@ router.post('/profile-image', authenticateToken, upload.single('image'), async (
       // Continue even if DB update fails - file is uploaded
     }
     
+    // Delete temp file after conversion
+    try {
+      if (req.file.path && fs.existsSync(req.file.path)) {
+        fs.unlinkSync(req.file.path);
+      }
+    } catch (cleanupError) {
+      console.warn('Profile image cleanup warning:', cleanupError.message);
+    }
+
     res.json({
       message: 'Profile image uploaded and saved successfully',
-      imageUrl: imageUrl,
-      filename: req.file.filename
+      imageUrl: imageUrl
     });
   } catch (error) {
     console.error('Profile image upload error:', error);
@@ -104,19 +113,29 @@ router.post('/profile-image', authenticateToken, upload.single('image'), async (
 });
 
 // Upload entity profile image (staff, student, instructor, client, partner, user).
-// Permanent storage under uploads/entity-images/. Files are never deleted when profile is updated.
-// Caller persists imageUrl via create/update API.
+// Stored as data URL for permanent DB persistence. Caller persists imageUrl via create/update API.
 router.post('/entity-image', authenticateToken, uploadEntityImage.single('image'), (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'No file uploaded' });
     }
-    const relativePath = `/uploads/entity-images/${req.file.filename}`;
+
+    const fileBuffer = fs.readFileSync(req.file.path);
+    const base64 = fileBuffer.toString('base64');
+    const dataUrl = `data:${req.file.mimetype};base64,${base64}`;
+
+    try {
+      if (req.file.path && fs.existsSync(req.file.path)) {
+        fs.unlinkSync(req.file.path);
+      }
+    } catch (cleanupError) {
+      console.warn('Entity image cleanup warning:', cleanupError.message);
+    }
+
     res.json({
       message: 'Image uploaded successfully',
-      imageUrl: relativePath,
-      url: relativePath,
-      filename: req.file.filename
+      imageUrl: dataUrl,
+      url: dataUrl
     });
   } catch (error) {
     if (error.code === 'LIMIT_FILE_SIZE') {

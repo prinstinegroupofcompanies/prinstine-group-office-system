@@ -45,6 +45,11 @@ export const normalizeUrl = (relativeUrl) => {
   if (relativeUrl.startsWith('http://') || relativeUrl.startsWith('https://')) {
     return relativeUrl;
   }
+
+  // If data URL, return as is
+  if (relativeUrl.startsWith('data:')) {
+    return relativeUrl;
+  }
   
   // Ensure relative URL starts with /
   const normalizedPath = relativeUrl.startsWith('/') ? relativeUrl : `/${relativeUrl}`;
