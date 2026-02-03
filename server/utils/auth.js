@@ -103,6 +103,23 @@ function requireStaffManagement(req, res, next) {
 }
 
 /**
+ * Middleware: Allow staff read access for Admin, HR Dept Head, HR Officer, or Department Head.
+ */
+function requireStaffRead(req, res, next) {
+  if (!req.user) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+  const email = ((req.user.email ?? '') + '').toLowerCase().trim();
+  const allowed =
+    ['Admin', 'HumanResourcesDepartmentHead', 'DepartmentHead'].includes(req.user.role) ||
+    HR_OFFICER_EMAILS.includes(email);
+  if (!allowed) {
+    return res.status(403).json({ error: 'Insufficient permissions to view staff' });
+  }
+  next();
+}
+
+/**
  * Check permission for a specific module and action
  */
 async function checkPermission(db, role, module, action) {
@@ -177,6 +194,22 @@ function requireStudentPaymentAccess() {
         const n = dept.name.toLowerCase();
         if (n.includes('finance') || n.includes('academy') || n.includes('elearning')) return next();
       }
+    } else if (req.user.role === 'Staff') {
+      const db = require('../config/database');
+      const staff = await db.get('SELECT department, position FROM staff WHERE user_id = ?', [req.user.id]);
+      if (staff) {
+        const deptName = (staff.department || '').toLowerCase();
+        const positionName = (staff.position || '').toLowerCase();
+        if (
+          deptName.includes('finance') ||
+          deptName.includes('academy') ||
+          deptName.includes('elearning') ||
+          deptName.includes('e-learning') ||
+          (positionName.includes('academy') && positionName.includes('coordinator'))
+        ) {
+          return next();
+        }
+      }
     }
     return res.status(403).json({ error: 'Only Finance head, Assistant Finance Officer, Academy head, or Academy staff can access student payments' });
   };
@@ -190,6 +223,7 @@ module.exports = {
   authenticateToken,
   requireRole,
   requireStaffManagement,
+  requireStaffRead,
   requireStudentPaymentAccess,
   getFinanceAccessUserIds,
   checkPermission,

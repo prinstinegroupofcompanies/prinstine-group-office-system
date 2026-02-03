@@ -122,6 +122,129 @@ router.get('/pending', authenticateToken, requireStudentPaymentAccess(), async (
   }
 });
 
+// GET /api/student-payments/student/:studentId/transactions
+router.get('/student/:studentId/transactions', authenticateToken, requireStudentPaymentAccess(), async (req, res) => {
+  try {
+    const { studentId } = req.params;
+    const rows = await db.all(
+      `SELECT t.id, t.student_payment_id, t.student_id, t.course_id, t.amount, t.payment_date, t.payment_method, t.payment_reference, t.proof_attachment, t.notes, t.status, t.created_by, t.created_at, t.admin_notes,
+              c.course_code, c.title as course_title
+       FROM student_payment_transactions t
+       JOIN courses c ON t.course_id = c.id
+       WHERE t.student_id = ? OR t.student_id = (SELECT id FROM students WHERE student_id = ?)
+       ORDER BY t.created_at DESC`,
+      [studentId, studentId]
+    );
+    res.json({ transactions: rows });
+  } catch (e) {
+    console.error('Get student transactions error:', e);
+    res.status(500).json({ error: 'Failed to fetch transactions' });
+  }
+});
+
+// POST /api/student-payments/transactions (Academy/Finance/Admin)
+router.post('/transactions', authenticateToken, requireStudentPaymentAccess(), [
+  body('student_id').isInt().withMessage('Student ID is required'),
+  body('course_id').isInt().withMessage('Course ID is required'),
+  body('amount').isFloat({ min: 0.01 }).withMessage('Payment amount must be greater than 0'),
+  body('payment_date').optional().isISO8601().withMessage('Payment date must be a valid date'),
+  body('payment_method').optional().trim(),
+  body('payment_reference').optional().trim(),
+  body('notes').optional().trim(),
+  body('status').optional().isIn(['Pending', 'Approved', 'Rejected'])
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+
+    const { student_id, course_id, amount, payment_date, payment_method, payment_reference, notes, status } = req.body;
+    const amt = parseFloat(amount);
+    const pd = payment_date || new Date().toISOString().split('T')[0];
+    const txStatus = status || 'Approved';
+
+    const enrollment = await db.get(
+      `SELECT e.*, c.course_fee
+       FROM student_course_enrollments e
+       JOIN courses c ON e.course_id = c.id
+       WHERE e.student_id = ? AND e.course_id = ? AND e.status != 'Dropped'`,
+      [student_id, course_id]
+    );
+    if (!enrollment) {
+      return res.status(404).json({ error: 'Student is not enrolled in this course' });
+    }
+
+    let paymentRecord = await db.get(
+      `SELECT sp.*, c.course_fee
+       FROM student_payments sp
+       JOIN courses c ON sp.course_id = c.id
+       WHERE sp.student_id = ? AND sp.course_id = ?`,
+      [student_id, course_id]
+    );
+
+    if (!paymentRecord) {
+      const courseFee = parseFloat(enrollment.course_fee) || 0;
+      const student = await db.get('SELECT user_id FROM students WHERE id = ?', [student_id]);
+      if (!student) {
+        return res.status(404).json({ error: 'Student not found' });
+      }
+      const result = await db.run(
+        `INSERT INTO student_payments (student_id, user_id, course_id, course_fee, amount_paid, balance)
+         VALUES (?, ?, ?, ?, 0, ?)`,
+        [student_id, student.user_id, course_id, courseFee, courseFee]
+      );
+      paymentRecord = await db.get(
+        `SELECT sp.*, c.course_fee
+         FROM student_payments sp
+         JOIN courses c ON sp.course_id = c.id
+         WHERE sp.id = ?`,
+        [result.lastID]
+      );
+    }
+
+    const run = await db.run(
+      `INSERT INTO student_payment_transactions
+       (student_payment_id, student_id, course_id, amount, payment_date, payment_method, payment_reference, notes, status, created_by, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+      [
+        paymentRecord.id,
+        student_id,
+        course_id,
+        amt,
+        pd,
+        payment_method || null,
+        payment_reference || null,
+        notes || null,
+        txStatus,
+        req.user.id
+      ]
+    );
+
+    if (txStatus === 'Approved') {
+      const currentPaid = parseFloat(paymentRecord.amount_paid) || 0;
+      const fee = parseFloat(paymentRecord.course_fee) || 0;
+      const nextPaid = currentPaid + amt;
+      if (nextPaid > fee) {
+        return res.status(400).json({ error: 'Amount exceeds course fee' });
+      }
+      const newBalance = Math.max(0, fee - nextPaid);
+      await db.run(
+        `UPDATE student_payments
+         SET amount_paid = ?, balance = ?, updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?`,
+        [nextPaid, newBalance, paymentRecord.id]
+      );
+    }
+
+    await logAction(req.user.id, 'add_student_payment_transaction', 'student_payments', run.lastID, { student_id, course_id, amount: amt, status: txStatus }, req);
+    res.status(201).json({ message: 'Transaction created', transaction: { id: run.lastID, status: txStatus } });
+  } catch (e) {
+    console.error('Create transaction error:', e);
+    res.status(500).json({ error: 'Failed to create transaction' });
+  }
+});
+
 // PUT /api/student-payments/transactions/:id/approve (Finance/Admin)
 router.put('/transactions/:id/approve', authenticateToken, requireStudentPaymentAccess(), [
   body('admin_notes').optional().trim()
@@ -173,6 +296,103 @@ router.put('/transactions/:id/approve', authenticateToken, requireStudentPayment
   } catch (e) {
     console.error('Approve transaction error:', e);
     res.status(500).json({ error: 'Failed to approve payment' });
+  }
+});
+
+// PUT /api/student-payments/transactions/:id (edit transaction)
+router.put('/transactions/:id', authenticateToken, requireStudentPaymentAccess(), [
+  body('amount').optional().isFloat({ min: 0.01 }).withMessage('Payment amount must be greater than 0'),
+  body('payment_date').optional().isISO8601().withMessage('Payment date must be a valid date'),
+  body('payment_method').optional().trim(),
+  body('payment_reference').optional().trim(),
+  body('notes').optional().trim(),
+  body('status').optional().isIn(['Pending', 'Approved', 'Rejected'])
+], async (req, res) => {
+  try {
+    const errs = validationResult(req);
+    if (!errs.isEmpty()) return res.status(400).json({ errors: errs.array() });
+    const id = req.params.id;
+    const { amount, payment_date, payment_method, payment_reference, notes, status } = req.body;
+
+    const t = await db.get(
+      'SELECT id, student_payment_id, student_id, course_id, amount, status FROM student_payment_transactions WHERE id = ?',
+      [id]
+    );
+    if (!t) return res.status(404).json({ error: 'Transaction not found' });
+
+    const sp = await db.get(
+      'SELECT id, amount_paid, balance, course_fee FROM student_payments WHERE id = ?',
+      [t.student_payment_id]
+    );
+    if (!sp) return res.status(404).json({ error: 'Payment record not found' });
+
+    const newAmount = amount !== undefined ? parseFloat(amount) : parseFloat(t.amount) || 0;
+    const nextStatus = status || t.status;
+
+    let delta = 0;
+    if (t.status === 'Approved') {
+      delta -= parseFloat(t.amount) || 0;
+    }
+    if (nextStatus === 'Approved') {
+      delta += newAmount;
+    }
+
+    const currentPaid = parseFloat(sp.amount_paid) || 0;
+    const fee = parseFloat(sp.course_fee) || 0;
+    const proposedPaid = currentPaid + delta;
+    if (proposedPaid < 0) return res.status(400).json({ error: 'Amount would create negative balance' });
+    if (proposedPaid > fee) return res.status(400).json({ error: 'Amount exceeds course fee' });
+
+    if (delta !== 0) {
+      const newBalance = Math.max(0, fee - proposedPaid);
+      await db.run(
+        'UPDATE student_payments SET amount_paid = ?, balance = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+        [proposedPaid, newBalance, sp.id]
+      );
+    }
+
+    const fields = [];
+    const params = [];
+    if (amount !== undefined) {
+      fields.push('amount = ?');
+      params.push(newAmount);
+    }
+    if (payment_date !== undefined) {
+      fields.push('payment_date = ?');
+      params.push(payment_date);
+    }
+    if (payment_method !== undefined) {
+      fields.push('payment_method = ?');
+      params.push(payment_method || null);
+    }
+    if (payment_reference !== undefined) {
+      fields.push('payment_reference = ?');
+      params.push(payment_reference || null);
+    }
+    if (notes !== undefined) {
+      fields.push('notes = ?');
+      params.push(notes || null);
+    }
+    if (status !== undefined) {
+      fields.push('status = ?');
+      params.push(nextStatus);
+    }
+    if (fields.length === 0) {
+      return res.status(400).json({ error: 'No updates provided' });
+    }
+    params.push(id);
+    await db.run(
+      `UPDATE student_payment_transactions
+       SET ${fields.join(', ')}, updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?`,
+      params
+    );
+
+    await logAction(req.user.id, 'update_payment_transaction', 'student_payments', id, { amount: newAmount, status: nextStatus }, req);
+    res.json({ message: 'Transaction updated', transaction: { id: parseInt(id, 10), status: nextStatus } });
+  } catch (e) {
+    console.error('Update transaction error:', e);
+    res.status(500).json({ error: 'Failed to update transaction' });
   }
 });
 
@@ -507,6 +727,83 @@ router.get('/:id', authenticateToken, requireStudentPaymentAccess(), async (req,
   } catch (error) {
     console.error('Get student payment error:', error);
     res.status(500).json({ error: 'Failed to fetch payment record' });
+  }
+});
+
+// Update student payment record (Academy/Finance/Admin)
+router.put('/:id', authenticateToken, requireStudentPaymentAccess(), [
+  body('course_fee').optional().isFloat({ min: 0 }).withMessage('Course fee must be >= 0'),
+  body('amount_paid').optional().isFloat({ min: 0 }).withMessage('Amount paid must be >= 0'),
+  body('balance').optional().isFloat({ min: 0 }).withMessage('Balance must be >= 0'),
+  body('payment_date').optional().isISO8601().withMessage('Payment date must be a valid date'),
+  body('payment_method').optional().trim(),
+  body('payment_reference').optional().trim(),
+  body('notes').optional().trim()
+], async (req, res) => {
+  try {
+    const errs = validationResult(req);
+    if (!errs.isEmpty()) return res.status(400).json({ errors: errs.array() });
+    const { id } = req.params;
+    const updates = req.body;
+
+    const payment = await db.get('SELECT id, course_fee, amount_paid, balance FROM student_payments WHERE id = ?', [id]);
+    if (!payment) return res.status(404).json({ error: 'Payment record not found' });
+
+    const nextCourseFee = updates.course_fee !== undefined ? parseFloat(updates.course_fee) : parseFloat(payment.course_fee) || 0;
+    const nextAmountPaid = updates.amount_paid !== undefined ? parseFloat(updates.amount_paid) : parseFloat(payment.amount_paid) || 0;
+    const nextBalance = updates.balance !== undefined ? parseFloat(updates.balance) : Math.max(0, nextCourseFee - nextAmountPaid);
+    if (nextAmountPaid > nextCourseFee) {
+      return res.status(400).json({ error: 'Amount paid exceeds course fee' });
+    }
+
+    const fields = [];
+    const params = [];
+    if (updates.course_fee !== undefined) {
+      fields.push('course_fee = ?');
+      params.push(nextCourseFee);
+    }
+    if (updates.amount_paid !== undefined) {
+      fields.push('amount_paid = ?');
+      params.push(nextAmountPaid);
+    }
+    if (updates.balance !== undefined || updates.course_fee !== undefined || updates.amount_paid !== undefined) {
+      fields.push('balance = ?');
+      params.push(nextBalance);
+    }
+    if (updates.payment_date !== undefined) {
+      fields.push('payment_date = ?');
+      params.push(updates.payment_date || null);
+    }
+    if (updates.payment_method !== undefined) {
+      fields.push('payment_method = ?');
+      params.push(updates.payment_method || null);
+    }
+    if (updates.payment_reference !== undefined) {
+      fields.push('payment_reference = ?');
+      params.push(updates.payment_reference || null);
+    }
+    if (updates.notes !== undefined) {
+      fields.push('notes = ?');
+      params.push(updates.notes || null);
+    }
+
+    if (fields.length === 0) {
+      return res.status(400).json({ error: 'No updates provided' });
+    }
+
+    params.push(id);
+    await db.run(
+      `UPDATE student_payments
+       SET ${fields.join(', ')}, updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?`,
+      params
+    );
+
+    await logAction(req.user.id, 'update_student_payment', 'student_payments', id, updates, req);
+    res.json({ message: 'Payment updated successfully' });
+  } catch (e) {
+    console.error('Update student payment error:', e);
+    res.status(500).json({ error: 'Failed to update payment' });
   }
 });
 

@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { body, validationResult } = require('express-validator');
 const db = require('../config/database');
-const { authenticateToken, requireRole, requireStaffManagement } = require('../utils/auth');
+const { authenticateToken, requireRole, requireStaffManagement, requireStaffRead } = require('../utils/auth');
 const { logAction } = require('../utils/audit');
 const { hashPassword } = require('../utils/auth');
 const { normalizeProfileImage } = require('../utils/normalizeProfileImage');
@@ -16,8 +16,8 @@ function generateStaffId() {
 const HR_OFFICER_EMAILS = ['samantha@prinstinegroup.org'];
 const isHROfficer = (user) => HR_OFFICER_EMAILS.includes(((user?.email ?? '') + '').toLowerCase().trim());
 
-// Get all staff (Admin, HR Officer, and Human Resources Department Head can see all; Staff can see their own)
-router.get('/', authenticateToken, requireStaffManagement, async (req, res) => {
+// Get all staff (Admin, HR Officer, Human Resources Department Head, Department Head)
+router.get('/', authenticateToken, requireStaffRead, async (req, res) => {
   try {
     const { department, employment_type, search } = req.query;
     let query = `
@@ -70,12 +70,31 @@ router.get('/', authenticateToken, requireStaffManagement, async (req, res) => {
         query += ' AND s.department = ?';
         params.push(dept.name);
       }
+    } else if (req.user.role === 'DepartmentHead') {
+      const deptTableInfo = await db.all("PRAGMA table_info(departments)");
+      const deptColumnNames = deptTableInfo.map(col => col.name);
+      const hasHeadEmail = deptColumnNames.includes('head_email');
+      let dept;
+      if (hasHeadEmail) {
+        dept = await db.get(
+          'SELECT id, name FROM departments WHERE manager_id = ? OR LOWER(TRIM(head_email)) = ?',
+          [req.user.id, req.user.email.toLowerCase().trim()]
+        );
+      } else {
+        dept = await db.get(
+          'SELECT id, name FROM departments WHERE manager_id = ?',
+          [req.user.id]
+        );
+      }
+      if (!dept || !dept.name) {
+        return res.status(403).json({ error: 'Department not found for this department head' });
+      }
+      query += ' AND s.department = ?';
+      params.push(dept.name);
     } else if (req.user.role === 'Staff') {
       // Staff (non–HR Officer) can only see their own staff record
       query += ' AND s.user_id = ?';
       params.push(req.user.id);
-    } else if (req.user.role !== 'Admin' && req.user.role !== 'HumanResourcesDepartmentHead') {
-      return res.status(403).json({ error: 'Insufficient permissions' });
     }
 
     query += ' ORDER BY s.created_at DESC';
@@ -150,7 +169,7 @@ router.get('/', authenticateToken, requireStaffManagement, async (req, res) => {
 });
 
 // Get single staff member
-router.get('/:id', authenticateToken, requireStaffManagement, async (req, res) => {
+router.get('/:id', authenticateToken, requireStaffRead, async (req, res) => {
   try {
     const staffId = req.params.id;
 
@@ -168,7 +187,25 @@ router.get('/:id', authenticateToken, requireStaffManagement, async (req, res) =
 
     const canViewAll = req.user.role === 'Admin' || req.user.role === 'HumanResourcesDepartmentHead' || isHROfficer(req.user);
     const ownRecord = staff.user_id === req.user.id;
-    const deptHeadView = req.user.role === 'DepartmentHead' && staff.department === req.user.department;
+    let deptHeadView = false;
+    if (req.user.role === 'DepartmentHead') {
+      const deptTableInfo = await db.all("PRAGMA table_info(departments)");
+      const deptColumnNames = deptTableInfo.map(col => col.name);
+      const hasHeadEmail = deptColumnNames.includes('head_email');
+      let dept;
+      if (hasHeadEmail) {
+        dept = await db.get(
+          'SELECT id, name FROM departments WHERE manager_id = ? OR LOWER(TRIM(head_email)) = ?',
+          [req.user.id, req.user.email.toLowerCase().trim()]
+        );
+      } else {
+        dept = await db.get(
+          'SELECT id, name FROM departments WHERE manager_id = ?',
+          [req.user.id]
+        );
+      }
+      deptHeadView = !!(dept && dept.name && staff.department === dept.name);
+    }
     if (!canViewAll && !ownRecord && !deptHeadView) {
       return res.status(403).json({ error: 'You do not have permission to view this staff member.' });
     }

@@ -7,6 +7,7 @@ import { getSocket } from '../../config/socket';
 
 const TAB_STUDENTS = 'students';
 const TAB_PENDING = 'pending';
+const TAB_TRANSACTIONS = 'transactions';
 
 const StudentPaymentManagement = () => {
   const { user } = useAuth();
@@ -22,15 +23,41 @@ const StudentPaymentManagement = () => {
   const [adminNotes, setAdminNotes] = useState('');
   const [loading, setLoading] = useState(true);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [transactionLoading, setTransactionLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [showPaymentForm, setShowPaymentForm] = useState(false);
+  const [showTransactionForm, setShowTransactionForm] = useState(false);
+  const [showEditPaymentForm, setShowEditPaymentForm] = useState(false);
+  const [transactions, setTransactions] = useState([]);
+  const [transactionFormMode, setTransactionFormMode] = useState('create');
   const [paymentFormData, setPaymentFormData] = useState({
     student_id: '',
     course_id: '',
     amount: '',
     payment_date: format(new Date(), 'yyyy-MM-dd'),
     payment_method: 'Cash',
+    payment_reference: '',
+    notes: ''
+  });
+  const [transactionFormData, setTransactionFormData] = useState({
+    id: '',
+    student_id: '',
+    course_id: '',
+    amount: '',
+    payment_date: format(new Date(), 'yyyy-MM-dd'),
+    payment_method: 'Cash',
+    payment_reference: '',
+    notes: '',
+    status: 'Approved'
+  });
+  const [editPaymentData, setEditPaymentData] = useState({
+    id: '',
+    course_fee: '',
+    amount_paid: '',
+    balance: '',
+    payment_date: '',
+    payment_method: '',
     payment_reference: '',
     notes: ''
   });
@@ -71,25 +98,36 @@ const StudentPaymentManagement = () => {
     const studentId = selectedStudent.id;
     let cancelled = false;
     setDetailLoading(true);
+    setTransactionLoading(true);
     setError('');
     Promise.all([
       api.get(`/student-payments/student/${studentId}`),
-      api.get(`/student-payments/student/${studentId}/enrolled-courses`).catch(() => ({ data: { courses: [] } }))
-    ]).then(([payRes, coursesRes]) => {
+      api.get(`/student-payments/student/${studentId}/enrolled-courses`).catch(() => ({ data: { courses: [] } })),
+      api.get(`/student-payments/student/${studentId}/transactions`).catch(() => ({ data: { transactions: [] } }))
+    ]).then(([payRes, coursesRes, txRes]) => {
       if (cancelled) return;
       setPayments(payRes.data.payments || []);
       setEnrolledCourses(coursesRes.data?.courses || []);
+      setTransactions(txRes.data?.transactions || []);
     }).catch((err) => {
       if (!cancelled) {
         setError(err.response?.data?.error || 'Failed to load student details');
         setPayments([]);
         setEnrolledCourses([]);
+        setTransactions([]);
       }
     }).finally(() => {
-      if (!cancelled) setDetailLoading(false);
+      if (!cancelled) {
+        setDetailLoading(false);
+        setTransactionLoading(false);
+      }
     });
     return () => { cancelled = true; };
   }, [selectedStudent?.id]);
+
+  const handleTransactionsTab = async () => {
+    setActiveTab(TAB_TRANSACTIONS);
+  };
 
   const fetchStudents = async () => {
     try {
@@ -131,14 +169,27 @@ const StudentPaymentManagement = () => {
 
   const handleStudentSelect = (student) => {
     setShowPaymentForm(false);
+    setShowTransactionForm(false);
+    setShowEditPaymentForm(false);
     setPayments([]);
     setEnrolledCourses([]);
+    setTransactions([]);
     setSelectedStudent(student);
   };
 
   const handlePaymentFormChange = (e) => {
     const { name, value } = e.target;
     setPaymentFormData(prev => ({ ...prev, [name]: value }));
+  };
+
+  const handleTransactionFormChange = (e) => {
+    const { name, value } = e.target;
+    setTransactionFormData(prev => ({ ...prev, [name]: value }));
+  };
+
+  const handleEditPaymentChange = (e) => {
+    const { name, value } = e.target;
+    setEditPaymentData(prev => ({ ...prev, [name]: value }));
   };
 
   const handleAddPayment = async (e) => {
@@ -170,6 +221,121 @@ const StudentPaymentManagement = () => {
     } catch (err) {
       console.error('Error adding payment:', err);
       setError('Failed to add payment: ' + (err.response?.data?.error || err.message));
+    }
+  };
+
+  const openAddTransaction = () => {
+    setTransactionFormMode('create');
+    setTransactionFormData({
+      id: '',
+      student_id: selectedStudent?.id || '',
+      course_id: '',
+      amount: '',
+      payment_date: format(new Date(), 'yyyy-MM-dd'),
+      payment_method: 'Cash',
+      payment_reference: '',
+      notes: '',
+      status: 'Approved'
+    });
+    setShowTransactionForm(true);
+  };
+
+  const openEditTransaction = (tx) => {
+    setTransactionFormMode('edit');
+    setTransactionFormData({
+      id: tx.id,
+      student_id: tx.student_id,
+      course_id: tx.course_id,
+      amount: tx.amount,
+      payment_date: tx.payment_date ? format(new Date(tx.payment_date), 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd'),
+      payment_method: tx.payment_method || 'Cash',
+      payment_reference: tx.payment_reference || '',
+      notes: tx.notes || '',
+      status: tx.status || 'Pending'
+    });
+    setShowTransactionForm(true);
+  };
+
+  const handleTransactionSubmit = async (e) => {
+    e.preventDefault();
+    setError('');
+    setSuccess('');
+    try {
+      if (transactionFormMode === 'create') {
+        await api.post('/student-payments/transactions', {
+          student_id: transactionFormData.student_id,
+          course_id: transactionFormData.course_id,
+          amount: transactionFormData.amount,
+          payment_date: transactionFormData.payment_date,
+          payment_method: transactionFormData.payment_method,
+          payment_reference: transactionFormData.payment_reference,
+          notes: transactionFormData.notes,
+          status: transactionFormData.status
+        });
+        setSuccess('Transaction created successfully');
+      } else {
+        await api.put(`/student-payments/transactions/${transactionFormData.id}`, {
+          amount: transactionFormData.amount,
+          payment_date: transactionFormData.payment_date,
+          payment_method: transactionFormData.payment_method,
+          payment_reference: transactionFormData.payment_reference,
+          notes: transactionFormData.notes,
+          status: transactionFormData.status
+        });
+        setSuccess('Transaction updated successfully');
+      }
+      setShowTransactionForm(false);
+      if (selectedStudent) {
+        fetchStudentPayments(selectedStudent.id);
+        fetchEnrolledCourses(selectedStudent.id);
+        const txRes = await api.get(`/student-payments/student/${selectedStudent.id}/transactions`);
+        setTransactions(txRes.data?.transactions || []);
+      }
+      fetchStudents();
+      fetchPending();
+    } catch (err) {
+      console.error('Transaction submit error:', err);
+      setError(err.response?.data?.error || 'Failed to save transaction');
+    }
+  };
+
+  const openEditPayment = (payment) => {
+    setEditPaymentData({
+      id: payment.id,
+      course_fee: payment.course_fee ?? '',
+      amount_paid: payment.amount_paid ?? '',
+      balance: payment.balance ?? '',
+      payment_date: payment.payment_date ? format(new Date(payment.payment_date), 'yyyy-MM-dd') : '',
+      payment_method: payment.payment_method || '',
+      payment_reference: payment.payment_reference || '',
+      notes: payment.notes || ''
+    });
+    setShowEditPaymentForm(true);
+  };
+
+  const handlePaymentUpdate = async (e) => {
+    e.preventDefault();
+    setError('');
+    setSuccess('');
+    try {
+      await api.put(`/student-payments/${editPaymentData.id}`, {
+        course_fee: editPaymentData.course_fee,
+        amount_paid: editPaymentData.amount_paid,
+        balance: editPaymentData.balance,
+        payment_date: editPaymentData.payment_date,
+        payment_method: editPaymentData.payment_method,
+        payment_reference: editPaymentData.payment_reference,
+        notes: editPaymentData.notes
+      });
+      setSuccess('Payment updated successfully');
+      setShowEditPaymentForm(false);
+      if (selectedStudent) {
+        fetchStudentPayments(selectedStudent.id);
+        fetchStudents();
+      }
+    } catch (err) {
+      console.error('Update payment error:', err);
+      setError(err.response?.data?.error || 'Failed to update payment');
     }
   };
 
@@ -357,6 +523,15 @@ const StudentPaymentManagement = () => {
             Pending Requests {pending.length > 0 && <span className="badge bg-warning text-dark">{pending.length}</span>}
           </button>
         </li>
+        <li className="nav-item">
+          <button
+            type="button"
+            className={`nav-link ${activeTab === TAB_TRANSACTIONS ? 'active' : ''}`}
+            onClick={handleTransactionsTab}
+          >
+            Transactions
+          </button>
+        </li>
       </ul>
 
       {error && (
@@ -518,6 +693,9 @@ const StudentPaymentManagement = () => {
                     setShowPaymentForm(true);
                   }}>
                     <i className="bi bi-plus-circle me-1"></i>Add Payment
+                  </button>
+                  <button className="btn btn-sm btn-outline-success ms-2" onClick={openAddTransaction}>
+                    <i className="bi bi-receipt me-1"></i>Add Transaction
                   </button>
                 </div>
               </div>
@@ -726,12 +904,13 @@ const StudentPaymentManagement = () => {
                         <th>Payment Date</th>
                         <th>Payment Method</th>
                         <th>Reference</th>
+                        <th></th>
                       </tr>
                     </thead>
                     <tbody>
                       {payments.length === 0 ? (
                         <tr>
-                          <td colSpan="7" className="text-center text-muted">
+                          <td colSpan="8" className="text-center text-muted">
                             No payment records found for this student.
                           </td>
                         </tr>
@@ -750,6 +929,66 @@ const StudentPaymentManagement = () => {
                             <td>{payment.payment_date ? format(new Date(payment.payment_date), 'PPP') : 'N/A'}</td>
                             <td>{payment.payment_method || 'N/A'}</td>
                             <td>{payment.payment_reference || 'N/A'}</td>
+                            <td className="text-end">
+                              <button className="btn btn-sm btn-outline-primary" onClick={() => openEditPayment(payment)}>
+                                Edit
+                              </button>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="d-flex justify-content-between align-items-center mt-4">
+                  <h6 className="mb-0">Transactions</h6>
+                  {transactionLoading && (
+                    <span className="spinner-border spinner-border-sm text-primary" role="status" aria-hidden="true" />
+                  )}
+                </div>
+                <div className="table-responsive mt-2">
+                  <table className="table table-hover table-striped">
+                    <thead>
+                      <tr>
+                        <th>Course</th>
+                        <th className="text-end">Amount</th>
+                        <th>Date</th>
+                        <th>Method</th>
+                        <th>Reference</th>
+                        <th>Status</th>
+                        <th></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {transactions.length === 0 ? (
+                        <tr>
+                          <td colSpan="7" className="text-center text-muted">
+                            No transactions found for this student.
+                          </td>
+                        </tr>
+                      ) : (
+                        transactions.map((tx) => (
+                          <tr key={tx.id}>
+                            <td>
+                              <strong>{tx.course_code}</strong><br />
+                              <small className="text-muted">{tx.course_title}</small>
+                            </td>
+                            <td className="text-end">{(parseFloat(tx.amount) || 0).toFixed(2)}</td>
+                            <td>{tx.payment_date ? format(new Date(tx.payment_date), 'PP') : '—'}</td>
+                            <td>{tx.payment_method || '—'}</td>
+                            <td>{tx.payment_reference || '—'}</td>
+                            <td>
+                              <span className={`badge bg-${
+                                tx.status === 'Approved' ? 'success' :
+                                tx.status === 'Rejected' ? 'danger' : 'warning'
+                              }`}>{tx.status}</span>
+                            </td>
+                            <td className="text-end">
+                              <button className="btn btn-sm btn-outline-primary" onClick={() => openEditTransaction(tx)}>
+                                Edit
+                              </button>
+                            </td>
                           </tr>
                         ))
                       )}
@@ -770,6 +1009,316 @@ const StudentPaymentManagement = () => {
           )}
         </div>
       </div>}
+
+      {activeTab === TAB_TRANSACTIONS && (
+        <div className="card">
+          <div className="card-header d-flex justify-content-between align-items-center">
+            <h5 className="mb-0">Transactions</h5>
+            <button className="btn btn-sm btn-outline-success" onClick={openAddTransaction} disabled={!selectedStudent}>
+              <i className="bi bi-receipt me-1"></i>Add Transaction
+            </button>
+          </div>
+          <div className="card-body">
+            {!selectedStudent ? (
+              <div className="text-center text-muted p-4">
+                Select a student from the Students tab to view transactions.
+              </div>
+            ) : transactionLoading ? (
+              <div className="d-flex justify-content-center py-4">
+                <div className="spinner-border text-primary" />
+              </div>
+            ) : (
+              <div className="table-responsive">
+                <table className="table table-hover table-striped">
+                  <thead>
+                    <tr>
+                      <th>Course</th>
+                      <th className="text-end">Amount</th>
+                      <th>Date</th>
+                      <th>Method</th>
+                      <th>Reference</th>
+                      <th>Status</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {transactions.length === 0 ? (
+                      <tr>
+                        <td colSpan="7" className="text-center text-muted">
+                          No transactions found for this student.
+                        </td>
+                      </tr>
+                    ) : (
+                      transactions.map((tx) => (
+                        <tr key={tx.id}>
+                          <td>
+                            <strong>{tx.course_code}</strong><br />
+                            <small className="text-muted">{tx.course_title}</small>
+                          </td>
+                          <td className="text-end">{(parseFloat(tx.amount) || 0).toFixed(2)}</td>
+                          <td>{tx.payment_date ? format(new Date(tx.payment_date), 'PP') : '—'}</td>
+                          <td>{tx.payment_method || '—'}</td>
+                          <td>{tx.payment_reference || '—'}</td>
+                          <td>
+                            <span className={`badge bg-${
+                              tx.status === 'Approved' ? 'success' :
+                              tx.status === 'Rejected' ? 'danger' : 'warning'
+                            }`}>{tx.status}</span>
+                          </td>
+                          <td className="text-end">
+                            <button className="btn btn-sm btn-outline-primary" onClick={() => openEditTransaction(tx)}>
+                              Edit
+                            </button>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {showTransactionForm && (
+        <div className="modal d-block" style={{ background: 'rgba(0,0,0,0.5)' }} tabIndex={-1}>
+          <div className="modal-dialog modal-lg">
+            <div className="modal-content">
+              <div className="modal-header">
+                <h5 className="modal-title">{transactionFormMode === 'create' ? 'Add Transaction' : 'Edit Transaction'}</h5>
+                <button type="button" className="btn-close" onClick={() => setShowTransactionForm(false)} aria-label="Close" />
+              </div>
+              <form onSubmit={handleTransactionSubmit}>
+                <div className="modal-body">
+                  <div className="row">
+                    <div className="col-md-6 mb-3">
+                      <label className="form-label">Course *</label>
+                      <select
+                        className="form-select"
+                        name="course_id"
+                        value={transactionFormData.course_id}
+                        onChange={handleTransactionFormChange}
+                        required
+                        disabled={transactionFormMode === 'edit'}
+                      >
+                        <option value="">Select Course</option>
+                        {enrolledCourses.length > 0 ? (
+                          enrolledCourses.map(course => (
+                            <option key={course.course_id} value={course.course_id}>
+                              {course.course_code} - {course.title}
+                            </option>
+                          ))
+                        ) : payments.length > 0 ? (
+                          payments.map(payment => (
+                            <option key={payment.course_id} value={payment.course_id}>
+                              {payment.course_code} - {payment.course_title}
+                            </option>
+                          ))
+                        ) : (
+                          <option value="" disabled>No courses available</option>
+                        )}
+                      </select>
+                    </div>
+                    <div className="col-md-6 mb-3">
+                      <label className="form-label">Amount *</label>
+                      <div className="input-group">
+                        <span className="input-group-text">$</span>
+                        <input
+                          type="number"
+                          step="0.01"
+                          className="form-control"
+                          name="amount"
+                          value={transactionFormData.amount}
+                          onChange={handleTransactionFormChange}
+                          required
+                          min="0.01"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                  <div className="row">
+                    <div className="col-md-4 mb-3">
+                      <label className="form-label">Payment Date *</label>
+                      <input
+                        type="date"
+                        className="form-control"
+                        name="payment_date"
+                        value={transactionFormData.payment_date}
+                        onChange={handleTransactionFormChange}
+                        required
+                      />
+                    </div>
+                    <div className="col-md-4 mb-3">
+                      <label className="form-label">Payment Method</label>
+                      <select
+                        className="form-select"
+                        name="payment_method"
+                        value={transactionFormData.payment_method}
+                        onChange={handleTransactionFormChange}
+                      >
+                        <option value="Cash">Cash</option>
+                        <option value="Bank Transfer">Bank Transfer</option>
+                        <option value="Check">Check</option>
+                        <option value="Credit Card">Credit Card</option>
+                        <option value="Mobile Money">Mobile Money</option>
+                      </select>
+                    </div>
+                    <div className="col-md-4 mb-3">
+                      <label className="form-label">Status</label>
+                      <select
+                        className="form-select"
+                        name="status"
+                        value={transactionFormData.status}
+                        onChange={handleTransactionFormChange}
+                      >
+                        <option value="Approved">Approved</option>
+                        <option value="Pending">Pending</option>
+                        <option value="Rejected">Rejected</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div className="mb-3">
+                    <label className="form-label">Reference Number</label>
+                    <input
+                      type="text"
+                      className="form-control"
+                      name="payment_reference"
+                      value={transactionFormData.payment_reference}
+                      onChange={handleTransactionFormChange}
+                      placeholder="Optional"
+                    />
+                  </div>
+                  <div className="mb-3">
+                    <label className="form-label">Notes</label>
+                    <textarea
+                      className="form-control"
+                      name="notes"
+                      rows="2"
+                      value={transactionFormData.notes}
+                      onChange={handleTransactionFormChange}
+                      placeholder="Optional notes about this transaction"
+                    ></textarea>
+                  </div>
+                </div>
+                <div className="modal-footer">
+                  <button type="button" className="btn btn-secondary" onClick={() => setShowTransactionForm(false)}>
+                    Cancel
+                  </button>
+                  <button type="submit" className="btn btn-primary">
+                    {transactionFormMode === 'create' ? 'Create Transaction' : 'Save Changes'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showEditPaymentForm && (
+        <div className="modal d-block" style={{ background: 'rgba(0,0,0,0.5)' }} tabIndex={-1}>
+          <div className="modal-dialog modal-lg">
+            <div className="modal-content">
+              <div className="modal-header">
+                <h5 className="modal-title">Edit Payment</h5>
+                <button type="button" className="btn-close" onClick={() => setShowEditPaymentForm(false)} aria-label="Close" />
+              </div>
+              <form onSubmit={handlePaymentUpdate}>
+                <div className="modal-body">
+                  <div className="row">
+                    <div className="col-md-4 mb-3">
+                      <label className="form-label">Course Fee</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        className="form-control"
+                        name="course_fee"
+                        value={editPaymentData.course_fee}
+                        onChange={handleEditPaymentChange}
+                        min="0"
+                      />
+                    </div>
+                    <div className="col-md-4 mb-3">
+                      <label className="form-label">Amount Paid</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        className="form-control"
+                        name="amount_paid"
+                        value={editPaymentData.amount_paid}
+                        onChange={handleEditPaymentChange}
+                        min="0"
+                      />
+                    </div>
+                    <div className="col-md-4 mb-3">
+                      <label className="form-label">Balance</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        className="form-control"
+                        name="balance"
+                        value={editPaymentData.balance}
+                        onChange={handleEditPaymentChange}
+                        min="0"
+                      />
+                    </div>
+                  </div>
+                  <div className="row">
+                    <div className="col-md-4 mb-3">
+                      <label className="form-label">Payment Date</label>
+                      <input
+                        type="date"
+                        className="form-control"
+                        name="payment_date"
+                        value={editPaymentData.payment_date}
+                        onChange={handleEditPaymentChange}
+                      />
+                    </div>
+                    <div className="col-md-4 mb-3">
+                      <label className="form-label">Payment Method</label>
+                      <input
+                        type="text"
+                        className="form-control"
+                        name="payment_method"
+                        value={editPaymentData.payment_method}
+                        onChange={handleEditPaymentChange}
+                      />
+                    </div>
+                    <div className="col-md-4 mb-3">
+                      <label className="form-label">Reference</label>
+                      <input
+                        type="text"
+                        className="form-control"
+                        name="payment_reference"
+                        value={editPaymentData.payment_reference}
+                        onChange={handleEditPaymentChange}
+                      />
+                    </div>
+                  </div>
+                  <div className="mb-3">
+                    <label className="form-label">Notes</label>
+                    <textarea
+                      className="form-control"
+                      name="notes"
+                      rows="2"
+                      value={editPaymentData.notes}
+                      onChange={handleEditPaymentChange}
+                    ></textarea>
+                  </div>
+                </div>
+                <div className="modal-footer">
+                  <button type="button" className="btn btn-secondary" onClick={() => setShowEditPaymentForm(false)}>
+                    Cancel
+                  </button>
+                  <button type="submit" className="btn btn-primary">
+                    Save Changes
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
