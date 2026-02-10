@@ -15,6 +15,10 @@ export const isAcademyStaff = (user) => {
   if (user.role === 'Admin') {
     return true;
   }
+
+  if (user.role === 'Instructor') {
+    return true;
+  }
   
   // Explicit email allowlist: Academy coordinators and Academy Head
   const userEmail = (user.email || '').toLowerCase().trim();

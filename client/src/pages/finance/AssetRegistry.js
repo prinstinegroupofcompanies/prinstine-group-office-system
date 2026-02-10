@@ -19,7 +19,7 @@ const AssetRegistry = () => {
     location: '',
     search: ''
   });
-  const [formData, setFormData] = useState({
+  const getInitialFormData = () => ({
     asset_description: '',
     asset_category: '',
     department: '',
@@ -37,9 +37,18 @@ const AssetRegistry = () => {
     remarks: '',
     attachment: null
   });
+  const [formData, setFormData] = useState(getInitialFormData());
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [monthlyAssets, setMonthlyAssets] = useState([]);
+  const [isEditingAsset, setIsEditingAsset] = useState(false);
+  const [editingAssetId, setEditingAssetId] = useState(null);
+
+  const FINANCE_EMAILS = ['sean@prinstinegroup.org'];
+  const canManageAssets =
+    user?.role === 'Admin' ||
+    FINANCE_EMAILS.includes((user?.email || '').toLowerCase().trim()) ||
+    isFinanceDeptHead;
 
   const assetCategories = [
     'Furniture & Fixtures',
@@ -168,28 +177,112 @@ const AssetRegistry = () => {
 
       setSuccess('Asset created successfully');
       setShowAssetForm(false);
-      setFormData({
-        asset_description: '',
-        asset_category: '',
-        department: '',
-        location: '',
-        date_acquired: new Date().toISOString().split('T')[0],
-        supplier: '',
-        purchase_price_usd: '',
-        purchase_price_lrd: '',
-        asset_condition: 'Good',
-        serial_number: '',
-        warranty_expiry_date: '',
-        expected_useful_life_years: 10,
-        depreciation_rate_annual: 0.05,
-        responsible_person_id: '',
-        remarks: '',
-        attachment: null
-      });
+      setIsEditingAsset(false);
+      setEditingAssetId(null);
+      setFormData(getInitialFormData());
       fetchAssets();
     } catch (error) {
       setError(error.response?.data?.error || 'Failed to create asset');
     }
+  };
+
+  const handleUpdateAsset = async (e) => {
+    e.preventDefault();
+    if (!editingAssetId) return;
+    setError('');
+    setSuccess('');
+
+    try {
+      const formDataObj = new FormData();
+      const fields = {
+        asset_description: formData.asset_description,
+        asset_category: formData.asset_category,
+        department: formData.department,
+        location: formData.location,
+        date_acquired: formData.date_acquired,
+        supplier: formData.supplier,
+        purchase_price_usd: formData.purchase_price_usd,
+        purchase_price_lrd: formData.purchase_price_lrd,
+        asset_condition: formData.asset_condition,
+        serial_number: formData.serial_number,
+        warranty_expiry_date: formData.warranty_expiry_date,
+        expected_useful_life_years: formData.expected_useful_life_years,
+        depreciation_rate_annual: formData.depreciation_rate_annual,
+        responsible_person_id: formData.responsible_person_id,
+        remarks: formData.remarks
+      };
+      Object.entries(fields).forEach(([key, value]) => {
+        if (value !== undefined && value !== null && value !== '') {
+          formDataObj.append(key, value);
+        }
+      });
+      if (formData.attachment) {
+        formDataObj.append('attachment', formData.attachment);
+      }
+
+      await api.put(`/finance/assets/${editingAssetId}`, formDataObj, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+
+      setSuccess('Asset updated successfully');
+      setShowAssetForm(false);
+      setIsEditingAsset(false);
+      setEditingAssetId(null);
+      setFormData(getInitialFormData());
+      fetchAssets();
+      if (selectedAsset && selectedAsset.id === editingAssetId) {
+        fetchAssetDetails(editingAssetId);
+      }
+    } catch (error) {
+      setError(error.response?.data?.error || 'Failed to update asset');
+    }
+  };
+
+  const handleEditAsset = (asset) => {
+    setIsEditingAsset(true);
+    setEditingAssetId(asset.id);
+    setShowAssetForm(true);
+    setFormData({
+      asset_description: asset.asset_description || '',
+      asset_category: asset.asset_category || '',
+      department: asset.department || '',
+      location: asset.location || '',
+      date_acquired: asset.date_acquired ? new Date(asset.date_acquired).toISOString().split('T')[0] : '',
+      supplier: asset.supplier || '',
+      purchase_price_usd: asset.purchase_price_usd ?? '',
+      purchase_price_lrd: asset.purchase_price_lrd ?? '',
+      asset_condition: asset.asset_condition || 'Good',
+      serial_number: asset.serial_number || '',
+      warranty_expiry_date: asset.warranty_expiry_date ? new Date(asset.warranty_expiry_date).toISOString().split('T')[0] : '',
+      expected_useful_life_years: asset.expected_useful_life_years || 10,
+      depreciation_rate_annual: asset.depreciation_rate_annual ?? 0.05,
+      responsible_person_id: asset.responsible_person_id || '',
+      remarks: asset.remarks || '',
+      attachment: null
+    });
+  };
+
+  const handleDeleteAsset = async (assetId) => {
+    if (!window.confirm('Are you sure you want to delete this asset? This cannot be undone.')) {
+      return;
+    }
+    try {
+      await api.delete(`/finance/assets/${assetId}`);
+      setSuccess('Asset deleted successfully');
+      fetchAssets();
+      if (selectedAsset && selectedAsset.id === assetId) {
+        setSelectedAsset(null);
+      }
+    } catch (error) {
+      setError(error.response?.data?.error || 'Failed to delete asset');
+    }
+  };
+
+  const closeAssetForm = () => {
+    setShowAssetForm(false);
+    setIsEditingAsset(false);
+    setEditingAssetId(null);
+    setFormData(getInitialFormData());
   };
 
   const handleApproveAsset = async (assetId, approved) => {
@@ -244,9 +337,11 @@ const AssetRegistry = () => {
       <div className="row mb-4">
         <div className="col-12 d-flex justify-content-between align-items-center">
           <h1 className="h3 mb-0">Asset Registry</h1>
-          <button className="btn btn-primary" onClick={() => setShowAssetForm(true)}>
-            <i className="bi bi-plus-circle me-2"></i>Add Asset
-          </button>
+          {canManageAssets && (
+            <button className="btn btn-primary" onClick={() => { setIsEditingAsset(false); setEditingAssetId(null); setShowAssetForm(true); }}>
+              <i className="bi bi-plus-circle me-2"></i>Add Asset
+            </button>
+          )}
         </div>
       </div>
 
@@ -511,6 +606,22 @@ const AssetRegistry = () => {
                                     </button>
                                   </>
                                 )}
+                                {canManageAssets && (
+                                  <>
+                                    <button
+                                      className="btn btn-sm btn-outline-primary me-2"
+                                      onClick={() => handleEditAsset(asset)}
+                                    >
+                                      <i className="bi bi-pencil-square me-1"></i>Edit
+                                    </button>
+                                    <button
+                                      className="btn btn-sm btn-outline-danger"
+                                      onClick={() => handleDeleteAsset(asset.id)}
+                                    >
+                                      <i className="bi bi-trash me-1"></i>Delete
+                                    </button>
+                                  </>
+                                )}
                               </>
                             )}
                           </td>
@@ -531,10 +642,10 @@ const AssetRegistry = () => {
           <div className="modal-dialog modal-lg">
             <div className="modal-content">
               <div className="modal-header">
-                <h5 className="modal-title">Add Asset</h5>
-                <button type="button" className="btn-close" onClick={() => setShowAssetForm(false)}></button>
+                <h5 className="modal-title">{isEditingAsset ? 'Edit Asset' : 'Add Asset'}</h5>
+                <button type="button" className="btn-close" onClick={closeAssetForm}></button>
               </div>
-              <form onSubmit={handleCreateAsset}>
+              <form onSubmit={isEditingAsset ? handleUpdateAsset : handleCreateAsset}>
                 <div className="modal-body">
                   <div className="row">
                     <div className="col-md-12 mb-3">
@@ -738,8 +849,8 @@ const AssetRegistry = () => {
                   </div>
                 </div>
                 <div className="modal-footer">
-                  <button type="button" className="btn btn-secondary" onClick={() => setShowAssetForm(false)}>Cancel</button>
-                  <button type="submit" className="btn btn-primary">Add Asset</button>
+                  <button type="button" className="btn btn-secondary" onClick={closeAssetForm}>Cancel</button>
+                  <button type="submit" className="btn btn-primary">{isEditingAsset ? 'Save Changes' : 'Add Asset'}</button>
                 </div>
               </form>
             </div>

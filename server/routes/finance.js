@@ -51,6 +51,13 @@ async function canManagePettyCash(user) {
   return await isFinanceStaff(user);
 }
 
+// Helper function to check if user can manage assets (view/edit/delete)
+async function canManageAssets(user) {
+  if (!user) return false;
+  if (user.role === 'Admin') return true;
+  return await isFinanceStaff(user);
+}
+
 // Helper function to check if user can delete petty cash (Assistant Finance Officer and Finance Department Head only)
 async function canDeletePettyCash(user) {
   if (user.role === 'Admin') return false; // Admin cannot delete
@@ -1445,6 +1452,126 @@ router.post('/assets', authenticateToken, upload.single('attachment'), [
   } catch (error) {
     console.error('Create asset error:', error);
     res.status(500).json({ error: 'Failed to create asset: ' + error.message });
+  }
+});
+
+// Update asset
+router.put('/assets/:id', authenticateToken, upload.single('attachment'), async (req, res) => {
+  try {
+    if (!(await canManageAssets(req.user))) {
+      return res.status(403).json({ error: 'Only Finance staff and Admin can update assets' });
+    }
+
+    const asset = await db.get('SELECT * FROM assets WHERE id = ?', [req.params.id]);
+    if (!asset) {
+      return res.status(404).json({ error: 'Asset not found' });
+    }
+
+    const updates = req.body || {};
+    const fields = [];
+    const params = [];
+
+    const setField = (field, value) => {
+      fields.push(`${field} = ?`);
+      params.push(value);
+    };
+
+    if (updates.asset_description !== undefined) setField('asset_description', updates.asset_description);
+    if (updates.asset_category !== undefined) setField('asset_category', updates.asset_category);
+    if (updates.department !== undefined) setField('department', updates.department);
+    if (updates.location !== undefined) setField('location', updates.location);
+    if (updates.date_acquired !== undefined) setField('date_acquired', updates.date_acquired);
+    if (updates.supplier !== undefined) setField('supplier', updates.supplier || null);
+    if (updates.purchase_price_usd !== undefined) setField('purchase_price_usd', parseFloat(updates.purchase_price_usd));
+    if (updates.purchase_price_lrd !== undefined) {
+      setField('purchase_price_lrd', updates.purchase_price_lrd === '' ? null : parseFloat(updates.purchase_price_lrd));
+    }
+    if (updates.asset_condition !== undefined) setField('asset_condition', updates.asset_condition || 'Good');
+    if (updates.serial_number !== undefined) setField('serial_number', updates.serial_number || null);
+    if (updates.warranty_expiry_date !== undefined) setField('warranty_expiry_date', updates.warranty_expiry_date || null);
+    if (updates.expected_useful_life_years !== undefined) {
+      setField('expected_useful_life_years', parseInt(updates.expected_useful_life_years));
+    }
+    if (updates.depreciation_rate_annual !== undefined) {
+      setField('depreciation_rate_annual', parseFloat(updates.depreciation_rate_annual));
+    }
+    if (updates.responsible_person_id !== undefined) {
+      setField('responsible_person_id', parseInt(updates.responsible_person_id));
+    }
+    if (updates.remarks !== undefined) setField('remarks', updates.remarks || null);
+
+    if (req.file) {
+      const attachmentPath = `/uploads/finance/${req.file.filename}`;
+      setField('attachment_path', attachmentPath);
+    }
+
+    const purchasePriceUsd = updates.purchase_price_usd !== undefined
+      ? parseFloat(updates.purchase_price_usd)
+      : parseFloat(asset.purchase_price_usd || 0);
+    const depreciationRate = updates.depreciation_rate_annual !== undefined
+      ? parseFloat(updates.depreciation_rate_annual)
+      : parseFloat(asset.depreciation_rate_annual || 0.05);
+
+    const shouldRecalcDep = updates.purchase_price_usd !== undefined || updates.depreciation_rate_annual !== undefined;
+    if (shouldRecalcDep) {
+      const depreciationExpensePerAnnum = purchasePriceUsd * depreciationRate;
+      const depreciationPerMonth = depreciationExpensePerAnnum / 12;
+      setField('depreciation_expense_per_annum', depreciationExpensePerAnnum);
+      setField('depreciation_per_month', depreciationPerMonth);
+    }
+
+    if (fields.length === 0) {
+      return res.status(400).json({ error: 'No valid fields to update' });
+    }
+
+    fields.push('updated_at = CURRENT_TIMESTAMP');
+    params.push(req.params.id);
+
+    await db.run(
+      `UPDATE assets SET ${fields.join(', ')} WHERE id = ?`,
+      params
+    );
+
+    await logAction(req.user.id, 'update_asset', 'finance', req.params.id, {}, req);
+
+    res.json({ message: 'Asset updated successfully' });
+  } catch (error) {
+    console.error('Update asset error:', error);
+    res.status(500).json({ error: 'Failed to update asset: ' + error.message });
+  }
+});
+
+// Delete asset
+router.delete('/assets/:id', authenticateToken, async (req, res) => {
+  try {
+    if (!(await canManageAssets(req.user))) {
+      return res.status(403).json({ error: 'Only Finance staff and Admin can delete assets' });
+    }
+
+    const asset = await db.get('SELECT id, attachment_path FROM assets WHERE id = ?', [req.params.id]);
+    if (!asset) {
+      return res.status(404).json({ error: 'Asset not found' });
+    }
+
+    await db.run('DELETE FROM assets WHERE id = ?', [req.params.id]);
+
+    if (asset.attachment_path) {
+      try {
+        const fullPath = path.join(__dirname, '../..', asset.attachment_path);
+        if (fs.existsSync(fullPath)) {
+          fs.unlinkSync(fullPath);
+        }
+      } catch (cleanupError) {
+        console.warn('Asset attachment cleanup warning:', cleanupError.message);
+      }
+    }
+
+    await logAction(req.user.id, 'delete_asset', 'finance', req.params.id, {}, req);
+
+    res.json({ message: 'Asset deleted successfully' });
+  } catch (error) {
+    console.error('Delete asset error:', error);
+    res.status(500).json({ error: 'Failed to delete asset: ' + error.message });
   }
 });
 
