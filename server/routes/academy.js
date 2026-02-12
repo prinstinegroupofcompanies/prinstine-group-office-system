@@ -41,7 +41,7 @@ async function isAcademyStaff(user) {
   // Explicit email check for Assistant Academy Coordinator (cvulue@prinstinegroup.org)
   // This ensures the user has full academy rights regardless of department field
   const userEmail = (user.email || '').toLowerCase().trim();
-  const academyCoordinatorEmails = ['cvulue@prinstinegroup.org', 'samsonbryant89@gmail.com'];
+  const academyCoordinatorEmails = ['samsonbryant89@gmail.com'];
   const academyHeadEmails = ['fwallace@prinstinegroup.org'];
   if (academyCoordinatorEmails.includes(userEmail) || academyHeadEmails.includes(userEmail)) {
     console.log(`[isAcademyStaff] User ${userEmail} identified as Assistant Academy Coordinator via email`);
