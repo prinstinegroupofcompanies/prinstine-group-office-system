@@ -41,7 +41,7 @@ const Sidebar = () => {
 
     if (normalizeRole(user.role) === 'admin') return setHasAcademyAccess(true);
 
-    const academyAllowlistEmails = ['cvulue@prinstinegroup.org', 'fwallace@prinstinegroup.org'];
+    const academyAllowlistEmails = ['fwallace@prinstinegroup.org'];
     if (academyAllowlistEmails.includes(user.email?.toLowerCase().trim())) {
       return setHasAcademyAccess(true);
     }
@@ -132,7 +132,7 @@ const Sidebar = () => {
   /* =========================
      STUDENT PAYMENT ACCESS
   ========================= */
-  const STUDENT_PAYMENT_EMAILS = ['sean@prinstinegroup.org', 'cvulue@prinstinegroup.org'];
+  const STUDENT_PAYMENT_EMAILS = ['sean@prinstinegroup.org'];
   const checkStudentPaymentAccess = useCallback(async () => {
     if (!user) return setHasStudentPaymentAccess(false);
     const email = ((user.email ?? '') + '').toLowerCase().trim();
