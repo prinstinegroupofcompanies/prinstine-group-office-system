@@ -134,20 +134,26 @@ const StudentForm = ({ student, onClose }) => {
       const profileImageValue = (formData.profile_image != null && String(formData.profile_image).trim() !== '')
         ? String(formData.profile_image).trim()
         : null;
+      const coursesEnrolled = Array.isArray(formData.courses_enrolled)
+        ? formData.courses_enrolled.map((c) => parseInt(c, 10)).filter((n) => !isNaN(n))
+        : [];
+      const cohortId = formData.cohort_id && String(formData.cohort_id).trim() !== ''
+        ? parseInt(formData.cohort_id, 10)
+        : null;
       const payload = {
-        name: formData.name,
-        email: formData.email,
-        username: formData.username || undefined,
-        phone: formData.phone || undefined,
-        enrollment_date: formData.enrollment_date || undefined,
+        name: String(formData.name || '').trim(),
+        email: String(formData.email || '').trim().toLowerCase(),
+        username: formData.username ? String(formData.username).trim() : undefined,
+        phone: formData.phone ? String(formData.phone).trim() : undefined,
+        enrollment_date: formData.enrollment_date && String(formData.enrollment_date).trim() ? formData.enrollment_date.trim().split('T')[0] : undefined,
         status: formData.status || 'Active',
         profile_image: profileImageValue,
-        cohort_id: formData.cohort_id || null,
-        period: formData.period || null,
-        courses_enrolled: Array.isArray(formData.courses_enrolled) ? formData.courses_enrolled : [],
+        cohort_id: !isNaN(cohortId) ? cohortId : null,
+        period: formData.period && String(formData.period).trim() ? String(formData.period).trim() : null,
+        courses_enrolled: coursesEnrolled,
       };
       if (!student) {
-        payload.password = formData.password || 'Student@123';
+        payload.password = formData.password && String(formData.password).trim() ? formData.password : 'Student@123';
       }
 
       if (student) {
@@ -158,7 +164,8 @@ const StudentForm = ({ student, onClose }) => {
 
       onClose();
     } catch (err) {
-      setError(err.response?.data?.error || 'Failed to save student');
+      const message = err.response?.data?.error || err.message || 'Failed to save student';
+      setError(message);
     } finally {
       setLoading(false);
     }
@@ -267,7 +274,7 @@ const StudentForm = ({ student, onClose }) => {
                     type="checkbox"
                     className="form-check-input"
                     value={parseInt(c.id)}
-                    checked={formData.courses_enrolled.includes(c.id)}
+                    checked={formData.courses_enrolled.some((id) => parseInt(id, 10) === parseInt(c.id, 10))}
                     onChange={handleChange}
                   />
                   <label className="form-check-label">

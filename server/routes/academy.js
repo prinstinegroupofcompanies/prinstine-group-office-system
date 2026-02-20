@@ -448,87 +448,127 @@ router.post('/students', authenticateToken, requireRole('Admin', 'Instructor', '
 
     // Check if user is Academy staff
     const academyStaff = await isAcademyStaff(req.user);
-    
-    // Only Admin and Academy staff can create students
     if (!academyStaff && req.user.role !== 'Admin') {
       return res.status(403).json({ error: 'Only Academy staff and Admins can create students' });
     }
 
-    // If created by Academy staff (not admin), require admin approval
-    // 0 = Pending, 1 = Approved, 2 = Rejected
     const approved = req.user.role === 'Admin' ? 1 : 0;
-
     const { hashPassword } = require('../utils/auth');
     const passwordHash = await hashPassword(password || 'Student@123');
     const emailToStore = normEmail || (email || '').toString().trim() || null;
+    const createdById = parseInt(req.user.id, 10) || req.user.id;
+    const cohortIdVal = (cohort_id !== undefined && cohort_id !== null && String(cohort_id).trim() !== '') ? parseInt(cohort_id, 10) : null;
+    const periodVal = (period !== undefined && period !== null && String(period).trim() !== '') ? String(period).trim() : null;
+    const enrollmentDateVal = enrollment_date && String(enrollment_date).trim() ? String(enrollment_date).trim().split('T')[0] : new Date().toISOString().split('T')[0];
+    const statusVal = status && ['Active', 'Graduated', 'Suspended', 'Dropped'].includes(String(status)) ? String(status) : 'Active';
+    const coursesArray = Array.isArray(courses_enrolled) ? courses_enrolled.map(c => parseInt(c, 10)).filter(n => !isNaN(n)) : [];
+    const coursesEnrolledJson = coursesArray.length > 0 ? JSON.stringify(coursesArray) : null;
 
-    // Create user - if pending approval, set is_active to 0. profile_image stored permanently.
-    const userResult = await db.run(
-      `INSERT INTO users (email, username, password_hash, role, name, phone, profile_image, is_active, email_verified)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)`,
-      [emailToStore, username || emailToStore.split('@')[0], passwordHash, 'Student', name, phone || null, normProfileImage, approved]
-    );
+    // Unique username to avoid clashes (email local part + short random suffix)
+    const baseUsername = (username && String(username).trim()) || emailToStore.split('@')[0] || 'student';
+    const safeUsername = baseUsername.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 50);
+
+    let userResult;
+    let result;
+    try {
+      userResult = await db.run(
+        `INSERT INTO users (email, username, password_hash, role, name, phone, profile_image, is_active, email_verified)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+        [emailToStore, safeUsername, passwordHash, 'Student', name, phone || null, normProfileImage, approved]
+      );
+    } catch (userErr) {
+      const msg = (userErr.message || '').toLowerCase();
+      const code = userErr.code;
+      if (code === 'SQLITE_CONSTRAINT' || code === '23505' || msg.includes('unique') || msg.includes('duplicate')) {
+        return res.status(400).json({ error: 'A user with this email or username already exists' });
+      }
+      throw userErr;
+    }
+
+    const newUserId = userResult.lastID ?? (userResult.rows && userResult.rows[0] && (userResult.rows[0].id ?? userResult.rows[0].ID));
+    if (newUserId == null) {
+      return res.status(500).json({ error: 'Failed to create user account' });
+    }
 
     const studentId = generateStudentId();
+    try {
+      result = await db.run(
+        `INSERT INTO students (user_id, student_id, enrollment_date, courses_enrolled, status, approved, cohort_id, period, created_by, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+        [
+          newUserId,
+          studentId,
+          enrollmentDateVal,
+          coursesEnrolledJson,
+          statusVal,
+          approved,
+          cohortIdVal,
+          periodVal,
+          createdById
+        ]
+      );
+    } catch (studentErr) {
+      const msg = (studentErr.message || '').toLowerCase();
+      if (msg.includes('no such column') || msg.includes('column') && msg.includes('does not exist')) {
+        console.error('Create student: students table may be missing columns (approved, created_by, cohort_id, period). Run migrations.', studentErr);
+        return res.status(500).json({ error: 'Server configuration error. Please contact admin.' });
+      }
+      throw studentErr;
+    }
 
-    const result = await db.run(
-      `INSERT INTO students (user_id, student_id, enrollment_date, courses_enrolled, status, approved, cohort_id, period, created_by, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
-      [
-        userResult.lastID, studentId,
-        enrollment_date || new Date().toISOString().split('T')[0],
-        courses_enrolled ? JSON.stringify(courses_enrolled) : null,
-        status || 'Active',
-        approved,
-        cohort_id || null,
-        period || null,
-        req.user.id
-      ]
-    );
+    const newStudentId = result.lastID ?? (result.rows && result.rows[0] && (result.rows[0].id ?? result.rows[0].ID));
+    if (newStudentId == null) {
+      return res.status(500).json({ error: 'Failed to create student record' });
+    }
 
-    // Only create course enrollments and payment records if approved (Admin created)
-    // If pending approval, these will be created when approved
-    if (approved === 1 && courses_enrolled && Array.isArray(courses_enrolled) && courses_enrolled.length > 0) {
-      for (const courseId of courses_enrolled) {
-        // Get course fee
-        const course = await db.get('SELECT id, course_fee FROM courses WHERE id = ?', [courseId]);
+    if (approved === 1 && coursesArray.length > 0) {
+      for (const courseId of coursesArray) {
+        const cid = parseInt(courseId, 10);
+        if (isNaN(cid)) continue;
+        const course = await db.get('SELECT id, course_fee FROM courses WHERE id = ?', [cid]);
         if (course) {
-          // Create enrollment record
           try {
             await db.run(
               `INSERT INTO student_course_enrollments (student_id, user_id, course_id, enrollment_date, status)
                VALUES (?, ?, ?, ?, 'Enrolled')`,
-              [result.lastID, userResult.lastID, courseId, enrollment_date || new Date().toISOString().split('T')[0]]
+              [newStudentId, newUserId, cid, enrollmentDateVal]
             );
           } catch (enrollError) {
-            // Ignore duplicate enrollment errors
-            if (!enrollError.message.includes('UNIQUE constraint')) {
+            if (!(enrollError.message || '').includes('UNIQUE') && !(enrollError.code === '23505')) {
               console.error('Error creating enrollment:', enrollError);
             }
           }
-
-          // Create payment record
-          const courseFee = course.course_fee || 0;
-          await db.run(
-            `INSERT INTO student_payments (student_id, user_id, course_id, course_fee, amount_paid, balance)
-             VALUES (?, ?, ?, ?, 0, ?)`,
-            [result.lastID, userResult.lastID, courseId, courseFee, courseFee]
-          );
+          const courseFee = parseFloat(course.course_fee) || 0;
+          try {
+            await db.run(
+              `INSERT INTO student_payments (student_id, user_id, course_id, course_fee, amount_paid, balance)
+               VALUES (?, ?, ?, ?, 0, ?)`,
+              [newStudentId, newUserId, cid, courseFee, courseFee]
+            );
+          } catch (paymentError) {
+            if (!(paymentError.message || '').includes('UNIQUE') && paymentError.code !== '23505') {
+              console.error('Error creating payment record:', paymentError);
+            }
+          }
         }
       }
     }
 
-    await logAction(req.user.id, 'create_student', 'academy', result.lastID, { studentId, approved }, req);
+    await logAction(req.user.id, 'create_student', 'academy', newStudentId, { studentId, approved }, req);
 
     res.status(201).json({
-      message: req.user.role === 'Admin' 
-        ? 'Student created successfully' 
+      message: req.user.role === 'Admin'
+        ? 'Student created successfully'
         : 'Student created successfully and is pending admin approval',
-      student: { id: result.lastID, student_id: studentId, approved }
+      student: { id: newStudentId, student_id: studentId, approved }
     });
   } catch (error) {
     console.error('Create student error:', error);
-    res.status(500).json({ error: 'Failed to create student: ' + error.message });
+    const msg = (error.message || '').toLowerCase();
+    if (msg.includes('unique') || msg.includes('duplicate') || error.code === 'SQLITE_CONSTRAINT' || error.code === '23505') {
+      return res.status(400).json({ error: 'A user with this email or username already exists' });
+    }
+    res.status(500).json({ error: 'Failed to create student. Please try again or contact support.' });
   }
 });
 
@@ -687,7 +727,8 @@ router.put('/students/:id', authenticateToken, requireRole('Admin', 'Instructor'
     }
     if (updates.cohort_id !== undefined) {
       studentUpdates.push('cohort_id = ?');
-      studentParams.push(updates.cohort_id || null);
+      const cohortId = (updates.cohort_id !== null && updates.cohort_id !== '') ? parseInt(updates.cohort_id, 10) : null;
+      studentParams.push(!isNaN(cohortId) ? cohortId : null);
     }
     if (updates.period !== undefined) {
       studentUpdates.push('period = ?');
