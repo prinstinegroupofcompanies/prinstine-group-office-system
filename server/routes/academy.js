@@ -441,9 +441,19 @@ router.post('/students', authenticateToken, requireRole('Admin', 'Instructor', '
 
     const normProfileImage = normalizeProfileImage(profile_image) ?? null;
     const normEmail = (email || '').toString().toLowerCase().trim();
-    const existingUser = await db.get('SELECT id FROM users WHERE LOWER(TRIM(email)) = ?', [normEmail]);
-    if (existingUser) {
-      return res.status(400).json({ error: 'User with this email already exists' });
+    if (!normEmail) {
+      return res.status(400).json({ error: 'A valid email address is required.' });
+    }
+
+    // Check for existing user by email (exact and case-insensitive so we never miss)
+    const existingByEmail = await db.get(
+      'SELECT id, email, role FROM users WHERE email = ? OR LOWER(TRIM(email)) = ?',
+      [normEmail, normEmail]
+    );
+    if (existingByEmail) {
+      return res.status(400).json({
+        error: 'A user with this email already exists in the system. Please use a different email, or check the Users/Staff/Students list if this person was added before.'
+      });
     }
 
     // Check if user is Academy staff
@@ -455,7 +465,7 @@ router.post('/students', authenticateToken, requireRole('Admin', 'Instructor', '
     const approved = req.user.role === 'Admin' ? 1 : 0;
     const { hashPassword } = require('../utils/auth');
     const passwordHash = await hashPassword(password || 'Student@123');
-    const emailToStore = normEmail || (email || '').toString().trim() || null;
+    const emailToStore = normEmail;
     const createdById = parseInt(req.user.id, 10) || req.user.id;
     const cohortIdVal = (cohort_id !== undefined && cohort_id !== null && String(cohort_id).trim() !== '') ? parseInt(cohort_id, 10) : null;
     const periodVal = (period !== undefined && period !== null && String(period).trim() !== '') ? String(period).trim() : null;
@@ -464,20 +474,17 @@ router.post('/students', authenticateToken, requireRole('Admin', 'Instructor', '
     const coursesArray = Array.isArray(courses_enrolled) ? courses_enrolled.map(c => parseInt(c, 10)).filter(n => !isNaN(n)) : [];
     const coursesEnrolledJson = coursesArray.length > 0 ? JSON.stringify(coursesArray) : null;
 
-    // Username: must be unique across all users. Use email-based value and ensure no collision.
-    const basePart = (username && String(username).trim()) || (emailToStore && emailToStore.split('@')[0]) || 'student';
-    const sanitized = basePart.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 45);
-    let finalUsername = sanitized || 'student';
-    let exists = await db.get('SELECT id FROM users WHERE LOWER(TRIM(username)) = LOWER(TRIM(?))', [finalUsername]);
-    if (exists) {
-      const suffix = Date.now().toString(36).slice(-6) + Math.random().toString(36).slice(2, 5);
-      finalUsername = (sanitized || 'student').slice(0, 40) + '_' + suffix;
-      exists = await db.get('SELECT id FROM users WHERE LOWER(TRIM(username)) = LOWER(TRIM(?))', [finalUsername]);
-      if (exists) {
-        finalUsername = 'stu_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
-      }
+    // Username: derive from email so it is unique (email is unique). Prefix avoids collision with staff/admin usernames.
+    const usernameFromEmail = 'stu_' + normEmail.replace(/[^a-z0-9]/gi, '_').slice(0, 220);
+    const usernameToStore = usernameFromEmail.slice(0, 255);
+
+    // Final email check immediately before insert (handles race and any DB inconsistency)
+    const again = await db.get('SELECT id FROM users WHERE LOWER(TRIM(email)) = ?', [normEmail]);
+    if (again) {
+      return res.status(400).json({
+        error: 'This email is already registered. Please use a different email or check existing students and staff.'
+      });
     }
-    const usernameToStore = finalUsername.slice(0, 255);
 
     let userResult;
     let result;
@@ -489,15 +496,15 @@ router.post('/students', authenticateToken, requireRole('Admin', 'Instructor', '
       );
     } catch (userErr) {
       const code = userErr.code;
-      const msg = (userErr.message || '').toLowerCase();
-      const isUniqueViolation = code === 'SQLITE_CONSTRAINT' || code === '23505' || msg.includes('unique') || msg.includes('duplicate');
-      if (isUniqueViolation) {
-        if (msg.includes('email') || msg.includes('username')) {
-          return res.status(400).json({ error: 'A user with this email or username already exists. Please use a different email.' });
-        }
-        return res.status(400).json({ error: 'A user with this email already exists. Please use a different email.' });
+      const msg = userErr.message || '';
+      const isUnique = code === 'SQLITE_CONSTRAINT' || code === '23505';
+      if (isUnique) {
+        console.warn('Create student: unique constraint on user insert', { email: normEmail, code, message: msg.slice(0, 200) });
+        return res.status(400).json({
+          error: 'This email or username is already in use. Please use a different email. If you are sure the student is new, try a different email address.'
+        });
       }
-      console.error('Create student – user insert error:', userErr.message);
+      console.error('Create student – user insert error:', code, msg);
       throw userErr;
     }
 
