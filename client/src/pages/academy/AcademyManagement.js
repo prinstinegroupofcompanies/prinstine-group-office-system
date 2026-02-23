@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import api from '../../config/api';
 import { useAuth } from '../../hooks/useAuth';
 import { isAcademyStaff, canApproveAcademy } from '../../utils/academyUtils';
@@ -11,6 +11,15 @@ import CohortForm from './CohortForm';
 
 const AcademyManagement = () => {
   const { user } = useAuth();
+  const navigate = useNavigate();
+
+  // Academy disabled for cvulue@prinstinegroup.org – redirect to dashboard
+  useEffect(() => {
+    const email = (user?.email || '').toLowerCase().trim();
+    if (email === 'cvulue@prinstinegroup.org') {
+      navigate('/dashboard', { replace: true });
+    }
+  }, [user?.email, navigate]);
   const [activeTab, setActiveTab] = useState('courses');
   const [courses, setCourses] = useState([]);
   const [students, setStudents] = useState([]);
@@ -375,6 +384,12 @@ const AcademyManagement = () => {
       alert(error.response?.data?.error || 'Failed to process approval');
     }
   };
+
+  // Academy disabled for cvulue@prinstinegroup.org – don't render or run fetches
+  const email = (user?.email || '').toLowerCase().trim();
+  if (email === 'cvulue@prinstinegroup.org') {
+    return null;
+  }
 
   // Don't block rendering - show content with individual loading states per tab
   return (

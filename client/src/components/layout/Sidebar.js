@@ -355,6 +355,9 @@ const Sidebar = () => {
           {menuItems
             .filter(item => {
               if (item.type === 'section') return true;
+              // Comment out Academy from sidebar for cvulue@prinstinegroup.org
+              const email = (user?.email || '').toLowerCase().trim();
+              if (item.path === '/academy' && email === 'cvulue@prinstinegroup.org') return false;
               // Check role access
               let roleOk = false;
               if (item.staffManagement) {
