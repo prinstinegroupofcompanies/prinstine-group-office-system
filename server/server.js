@@ -115,19 +115,45 @@ const auditHttpLogger = require('./middleware/auditHttpLogger');
 app.use('/api', attachAuditUserFromToken);
 app.use('/api', auditHttpLogger);
 
+// Keep uploads on a persistent path in production (for Render: /var/data/uploads)
+const uploadsRoot = path.resolve(process.env.UPLOADS_DIR || path.join(__dirname, '../uploads'));
+const legacyUploadsPath = path.resolve(path.join(__dirname, '../uploads'));
+
+if (!fs.existsSync(uploadsRoot)) {
+  fs.mkdirSync(uploadsRoot, { recursive: true });
+}
+
+// Many modules still reference ../uploads directly.
+// Create/update a symlink so those paths resolve to persistent storage.
+try {
+  if (legacyUploadsPath !== uploadsRoot) {
+    if (fs.existsSync(legacyUploadsPath)) {
+      const stat = fs.lstatSync(legacyUploadsPath);
+      if (!stat.isSymbolicLink()) {
+        fs.renameSync(legacyUploadsPath, `${legacyUploadsPath}.legacy-${Date.now()}`);
+      } else {
+        fs.unlinkSync(legacyUploadsPath);
+      }
+    }
+    fs.symlinkSync(uploadsRoot, legacyUploadsPath, 'dir');
+  }
+} catch (err) {
+  console.warn('Uploads symlink setup warning:', err.message);
+}
+
 // Ensure permanent storage dirs exist (entity-images: student/instructor/staff profile photos)
-const entityImagesDir = path.join(__dirname, '../uploads/entity-images');
+const entityImagesDir = path.join(uploadsRoot, 'entity-images');
 if (!fs.existsSync(entityImagesDir)) {
   fs.mkdirSync(entityImagesDir, { recursive: true });
 }
 
 // Serve uploaded files
-app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
-app.use('/uploads/claims', express.static(path.join(__dirname, '../uploads/claims')));
-app.use('/uploads/communications', express.static(path.join(__dirname, '../uploads/communications')));
-app.use('/uploads/proposals', express.static(path.join(__dirname, '../uploads/proposals')));
-app.use('/uploads/archived-documents', express.static(path.join(__dirname, '../uploads/archived-documents')));
-app.use('/uploads/requisitions', express.static(path.join(__dirname, '../uploads/requisitions')));
+app.use('/uploads', express.static(uploadsRoot));
+app.use('/uploads/claims', express.static(path.join(uploadsRoot, 'claims')));
+app.use('/uploads/communications', express.static(path.join(uploadsRoot, 'communications')));
+app.use('/uploads/proposals', express.static(path.join(uploadsRoot, 'proposals')));
+app.use('/uploads/archived-documents', express.static(path.join(uploadsRoot, 'archived-documents')));
+app.use('/uploads/requisitions', express.static(path.join(uploadsRoot, 'requisitions')));
 
 // Rate limiting - TEMPORARILY DISABLED to debug login timeout issues
 // const limiter = rateLimit({

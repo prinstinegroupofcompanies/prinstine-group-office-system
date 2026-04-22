@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import axios from 'axios';
+import { getApiBaseUrl, getBaseUrl } from '../../utils/apiUrl';
 import './PublicClaims.css';
 
 const PublicClaims = () => {
@@ -15,7 +16,8 @@ const PublicClaims = () => {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
 
-  const API_URL = 'http://localhost:3003/api/claims/public/submit';
+  const API_URL = `${getApiBaseUrl()}/claims/public/submit`;
+  const BASE_URL = getBaseUrl();
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -74,7 +76,7 @@ const PublicClaims = () => {
 
     try {
       // Upload to file upload endpoint
-      const uploadResponse = await axios.post('http://localhost:3002/api/upload', uploadFormData, {
+      const uploadResponse = await axios.post(`${getApiBaseUrl()}/upload`, uploadFormData, {
         headers: {
           'Content-Type': 'multipart/form-data'
         }
@@ -96,9 +98,9 @@ const PublicClaims = () => {
         } catch {
           // If not a valid URL, construct absolute URL
           if (fileUrl.startsWith('/')) {
-            fileUrl = `http://localhost:3002${fileUrl}`;
+            fileUrl = `${BASE_URL}${fileUrl}`;
           } else {
-            fileUrl = `http://localhost:3002/${fileUrl}`;
+            fileUrl = `${BASE_URL}/${fileUrl}`;
           }
           // Validate the constructed URL
           new URL(fileUrl);

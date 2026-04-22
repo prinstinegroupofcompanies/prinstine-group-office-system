@@ -193,6 +193,7 @@ prinstine-management-system/
 
 - **[QUICKSTART.md](./QUICKSTART.md)** - Get started in 5 minutes
 - **[SETUP.md](./SETUP.md)** - Detailed setup and configuration guide
+- **[DEPLOY_VERCEL_RENDER.md](./DEPLOY_VERCEL_RENDER.md)** - Vercel + Render deployment with data persistence
 - **Code Comments** - Comprehensive inline documentation
 
 ## 🛠️ Development
