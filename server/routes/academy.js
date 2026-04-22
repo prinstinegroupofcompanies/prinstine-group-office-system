@@ -23,6 +23,21 @@ function generateCertificateId() {
   return 'CERT-' + Date.now().toString().slice(-8) + '-' + crypto.randomBytes(4).toString('hex').toUpperCase();
 }
 
+function isCertificateWindowOpenForCohort(row) {
+  const enabled = Number(row?.cert_access_enabled || 0) === 1;
+  if (!enabled) return false;
+  const now = new Date();
+  if (row?.cert_access_start) {
+    const start = new Date(row.cert_access_start);
+    if (now < start) return false;
+  }
+  if (row?.cert_access_end) {
+    const end = new Date(row.cert_access_end);
+    if (now > end) return false;
+  }
+  return true;
+}
+
 // Helper function to check if user is Academy staff (Academy, eLearning, or Marketing department)
 // Includes: Admin, Academy Department Head, Marketing Department Head, and Assistant Academy Coordinator (Staff in Academy department)
 async function isAcademyStaff(user) {
@@ -344,6 +359,15 @@ router.get('/students/me/certificates', authenticateToken, requireRole('Student'
   try {
     const student = await getCurrentStudent(req);
     if (!student) return res.status(404).json({ error: 'Student record not found or not approved' });
+    const cohort = await db.get(
+      'SELECT cert_access_enabled, cert_access_start, cert_access_end FROM cohorts WHERE id = ?',
+      [student.cohort_id || null]
+    );
+    if (!cohort || !isCertificateWindowOpenForCohort(cohort)) {
+      return res.status(403).json({
+        error: 'Certificate access for your cohort is currently closed. Please contact Academy administration.'
+      });
+    }
     const certs = await db.all(
       `SELECT c.id, c.certificate_id, c.course_id, c.issue_date, c.grade, c.verification_code, c.pdf_path,
               co.course_code, co.title as course_title
@@ -371,6 +395,15 @@ router.get('/students/me/certificates/:id/download', authenticateToken, requireR
   try {
     const student = await getCurrentStudent(req);
     if (!student) return res.status(404).json({ error: 'Student record not found or not approved' });
+    const cohort = await db.get(
+      'SELECT cert_access_enabled, cert_access_start, cert_access_end FROM cohorts WHERE id = ?',
+      [student.cohort_id || null]
+    );
+    if (!cohort || !isCertificateWindowOpenForCohort(cohort)) {
+      return res.status(403).json({
+        error: 'Certificate access for your cohort is currently closed. Please contact Academy administration.'
+      });
+    }
     const cert = await db.get(
       'SELECT id, pdf_path, student_id FROM certificates WHERE id = ? AND student_id = ?',
       [req.params.id, student.id]
@@ -2118,7 +2151,17 @@ router.post('/cohorts', authenticateToken, requireRole('Admin', 'Instructor', 'D
       return res.status(400).json({ errors: errors.array() });
     }
 
-    const { name, start_date, end_date, period, description, status } = req.body;
+    const {
+      name,
+      start_date,
+      end_date,
+      period,
+      description,
+      status,
+      cert_access_enabled,
+      cert_access_start,
+      cert_access_end
+    } = req.body;
 
     // Check if user is Academy staff
     const academyStaff = await isAcademyStaff(req.user);
@@ -2140,9 +2183,25 @@ router.post('/cohorts', authenticateToken, requireRole('Admin', 'Instructor', 'D
     }
 
     const result = await db.run(
-      `INSERT INTO cohorts (name, code, start_date, end_date, period, description, status, created_by, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
-      [name, finalCode, start_date || null, end_date || null, period || null, description || null, status || 'Active', req.user.id]
+      `INSERT INTO cohorts (
+        name, code, start_date, end_date, period, description, status,
+        cert_access_enabled, cert_access_start, cert_access_end,
+        created_by, created_at, updated_at
+      )
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+      [
+        name,
+        finalCode,
+        start_date || null,
+        end_date || null,
+        period || null,
+        description || null,
+        status || 'Active',
+        cert_access_enabled ? 1 : 0,
+        cert_access_start || null,
+        cert_access_end || null,
+        req.user.id
+      ]
     );
 
     const cohort = await db.get(
@@ -2176,14 +2235,28 @@ router.put('/cohorts/:id', authenticateToken, requireRole('Admin', 'Instructor',
       return res.status(403).json({ error: 'Only Academy staff and Admins can edit cohorts' });
     }
 
-    const allowedUpdates = ['name', 'start_date', 'end_date', 'period', 'description', 'status'];
+    const allowedUpdates = [
+      'name',
+      'start_date',
+      'end_date',
+      'period',
+      'description',
+      'status',
+      'cert_access_enabled',
+      'cert_access_start',
+      'cert_access_end'
+    ];
     const updateFields = [];
     const updateParams = [];
 
     for (const field of allowedUpdates) {
       if (updates[field] !== undefined) {
         updateFields.push(`${field} = ?`);
-        updateParams.push(updates[field]);
+        if (field === 'cert_access_enabled') {
+          updateParams.push(updates[field] ? 1 : 0);
+        } else {
+          updateParams.push(updates[field]);
+        }
       }
     }
 

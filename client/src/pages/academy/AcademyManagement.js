@@ -17,6 +17,7 @@ import CourseForm from './CourseForm';
 import InstructorForm from './InstructorForm';
 import CohortForm from './CohortForm';
 import StudentAcademyGradesTab from './StudentAcademyGradesTab';
+import CertificateManagement from '../certificates/CertificateManagement';
 
 const AcademyManagement = () => {
   const { user } = useAuth();
@@ -201,6 +202,8 @@ const AcademyManagement = () => {
       fetchCourses();
       fetchCohorts();
       fetchStudentsUnfiltered();
+    } else if (activeTab === 'certificates') {
+      fetchCohorts();
     }
   }, [
     activeTab,
@@ -581,6 +584,14 @@ const AcademyManagement = () => {
                 onClick={() => setActiveTab('student-grades')}
               >
                 Student Grade
+              </button>
+            </li>
+            <li className="nav-item">
+              <button
+                className={`nav-link ${activeTab === 'certificates' ? 'active' : ''}`}
+                onClick={() => setActiveTab('certificates')}
+              >
+                Certificates
               </button>
             </li>
           </>
@@ -1111,6 +1122,7 @@ const AcademyManagement = () => {
                       <th>Period</th>
                       <th>Start Date</th>
                       <th>End Date</th>
+                      <th>Certificate Access</th>
                       <th>Status</th>
                       <th>Actions</th>
                     </tr>
@@ -1123,6 +1135,18 @@ const AcademyManagement = () => {
                         <td>{cohort.period || <span className="text-muted">-</span>}</td>
                         <td>{cohort.start_date ? new Date(cohort.start_date).toLocaleDateString() : <span className="text-muted">-</span>}</td>
                         <td>{cohort.end_date ? new Date(cohort.end_date).toLocaleDateString() : <span className="text-muted">-</span>}</td>
+                        <td>
+                          {Number(cohort.cert_access_enabled || 0) === 1 ? (
+                            <div>
+                              <span className="badge bg-success">Open</span>
+                              <div className="small text-muted mt-1">
+                                {cohort.cert_access_start ? new Date(cohort.cert_access_start).toLocaleDateString() : 'Now'} - {cohort.cert_access_end ? new Date(cohort.cert_access_end).toLocaleDateString() : 'Until closed'}
+                              </div>
+                            </div>
+                          ) : (
+                            <span className="badge bg-secondary">Closed</span>
+                          )}
+                        </td>
                         <td>
                           <span className={`badge bg-${
                             cohort.status === 'Active' ? 'success' :
@@ -1352,6 +1376,10 @@ const AcademyManagement = () => {
           students={studentsForSelect}
           isAdmin={user?.role === 'Admin'}
         />
+      )}
+
+      {activeTab === 'certificates' && (
+        <CertificateManagement embedded />
       )}
 
       {showCohortForm && (

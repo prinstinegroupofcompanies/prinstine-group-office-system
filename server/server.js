@@ -253,6 +253,7 @@ async function initializeDatabase() {
     const studentInvoicesPath = path.join(__dirname, 'database/migrations/027_student_invoices.sql');
     const gradeSubmissionsPath = path.join(__dirname, 'database/migrations/028_grade_submissions.sql');
     const attendanceGeoCoordsPath = path.join(__dirname, 'database/migrations/029_attendance_office_geocoords.sql');
+    const certificateAccessWindowsPath = path.join(__dirname, 'database/migrations/030_certificate_access_windows.sql');
     
     if (tables.length === 0) {
       console.log('Initializing database schema...');
@@ -2313,6 +2314,34 @@ async function initializeDatabase() {
       }
       if (geoApplied) {
         console.log('✓ staff_attendance geolocation columns applied');
+      }
+    }
+
+    // Cohort-based certificate access windows
+    if (fs.existsSync(certificateAccessWindowsPath)) {
+      const certWindowSql = fs.readFileSync(certificateAccessWindowsPath, 'utf8');
+      const certWindowStmts = certWindowSql.split(';').filter((s) => s.trim().length > 0);
+      let certWindowApplied = false;
+      for (const statement of certWindowStmts) {
+        if (!statement.trim()) continue;
+        try {
+          await db.run(statement);
+          certWindowApplied = true;
+        } catch (e) {
+          const msg = (e && e.message) || '';
+          if (
+            msg.includes('duplicate column') ||
+            msg.includes('already exists') ||
+            msg.includes('42701')
+          ) {
+            // idempotent migration
+          } else {
+            console.error('Error executing certificate access migration:', msg);
+          }
+        }
+      }
+      if (certWindowApplied) {
+        console.log('✓ cohort certificate access window columns applied');
       }
     }
     

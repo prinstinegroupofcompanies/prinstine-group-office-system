@@ -3,7 +3,7 @@ import api from '../../config/api';
 import CertificateForm from './CertificateForm';
 import CertificateView from './CertificateView';
 
-const CertificateManagement = () => {
+const CertificateManagement = ({ embedded = false }) => {
   const [certificates, setCertificates] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -84,6 +84,25 @@ const CertificateManagement = () => {
     fetchCertificates();
   };
 
+  const handleDownload = async (certificate, format) => {
+    try {
+      const response = await api.get(`/certificates/${certificate.id}/download/${format}`, {
+        responseType: 'blob'
+      });
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `certificate-${certificate.certificate_id}.${format}`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Download error:', error);
+      alert('Failed to download certificate');
+    }
+  };
+
   if (loading) {
     return (
       <div className="d-flex justify-content-center">
@@ -98,7 +117,7 @@ const CertificateManagement = () => {
     <div className="container-fluid">
       <div className="row mb-4">
         <div className="col-12 d-flex justify-content-between align-items-center">
-          <h1 className="h3 mb-0">Certificate Management</h1>
+          {!embedded && <h1 className="h3 mb-0">Certificate Management</h1>}
           <button className="btn btn-primary" onClick={handleAdd}>
             <i className="bi bi-plus-circle me-2"></i>Add Certificate
           </button>
@@ -179,6 +198,12 @@ const CertificateManagement = () => {
                       <td>
                         <button className="btn btn-sm btn-outline-info me-2" onClick={() => handleView(certificate)}>
                           <i className="bi bi-eye me-1"></i>View
+                        </button>
+                        <button className="btn btn-sm btn-outline-success me-2" onClick={() => handleDownload(certificate, 'pdf')}>
+                          <i className="bi bi-download me-1"></i>PDF
+                        </button>
+                        <button className="btn btn-sm btn-outline-secondary me-2" onClick={() => handleDownload(certificate, 'png')}>
+                          <i className="bi bi-download me-1"></i>Image
                         </button>
                         <button className="btn btn-sm btn-outline-primary me-2" onClick={() => handleEdit(certificate)}>
                           <i className="bi bi-pencil me-1"></i>Edit

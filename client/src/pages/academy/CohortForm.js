@@ -8,7 +8,10 @@ const CohortForm = ({ cohort, onClose }) => {
     end_date: '',
     period: '',
     description: '',
-    status: 'Active'
+    status: 'Active',
+    cert_access_enabled: false,
+    cert_access_start: '',
+    cert_access_end: ''
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -21,16 +24,19 @@ const CohortForm = ({ cohort, onClose }) => {
         end_date: cohort.end_date ? cohort.end_date.split('T')[0] : '',
         period: cohort.period || '',
         description: cohort.description || '',
-        status: cohort.status || 'Active'
+        status: cohort.status || 'Active',
+        cert_access_enabled: Number(cohort.cert_access_enabled || 0) === 1,
+        cert_access_start: cohort.cert_access_start ? cohort.cert_access_start.split('T')[0] : '',
+        cert_access_end: cohort.cert_access_end ? cohort.cert_access_end.split('T')[0] : ''
       });
     }
   }, [cohort]);
 
   const handleChange = (e) => {
-    const { name, value } = e.target;
+    const { name, value, type, checked } = e.target;
     setFormData({
       ...formData,
-      [name]: value
+      [name]: type === 'checkbox' ? checked : value
     });
   };
 
@@ -140,6 +146,50 @@ const CohortForm = ({ cohort, onClose }) => {
                   <option value="Completed">Completed</option>
                   <option value="Cancelled">Cancelled</option>
                 </select>
+              </div>
+
+              <div className="border rounded p-3 bg-light">
+                <h6 className="mb-3">Certificate Access Window (Student Verification)</h6>
+                <div className="form-check mb-3">
+                  <input
+                    className="form-check-input"
+                    type="checkbox"
+                    id="cert_access_enabled"
+                    name="cert_access_enabled"
+                    checked={!!formData.cert_access_enabled}
+                    onChange={handleChange}
+                  />
+                  <label className="form-check-label" htmlFor="cert_access_enabled">
+                    Enable certificate verification/access for this cohort
+                  </label>
+                </div>
+                <div className="row">
+                  <div className="col-md-6 mb-3">
+                    <label className="form-label">Access Start</label>
+                    <input
+                      type="date"
+                      className="form-control"
+                      name="cert_access_start"
+                      value={formData.cert_access_start}
+                      onChange={handleChange}
+                      disabled={!formData.cert_access_enabled}
+                    />
+                  </div>
+                  <div className="col-md-6 mb-3">
+                    <label className="form-label">Access End</label>
+                    <input
+                      type="date"
+                      className="form-control"
+                      name="cert_access_end"
+                      value={formData.cert_access_end}
+                      onChange={handleChange}
+                      disabled={!formData.cert_access_enabled}
+                    />
+                  </div>
+                </div>
+                <small className="text-muted">
+                  Students can verify and download certificates only while this window is open.
+                </small>
               </div>
             </div>
             <div className="modal-footer">

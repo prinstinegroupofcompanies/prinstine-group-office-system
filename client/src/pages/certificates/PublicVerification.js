@@ -7,7 +7,9 @@ const PublicVerification = () => {
     student_name: '',
     student_id: ''
   });
-  const [certificate, setCertificate] = useState(null);
+  const [studentInfo, setStudentInfo] = useState(null);
+  const [certificates, setCertificates] = useState([]);
+  const [accessWindow, setAccessWindow] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -17,21 +19,27 @@ const PublicVerification = () => {
       [e.target.name]: e.target.value
     });
     setError('');
-    setCertificate(null);
+    setStudentInfo(null);
+    setCertificates([]);
+    setAccessWindow(null);
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
-    setCertificate(null);
+    setStudentInfo(null);
+    setCertificates([]);
+    setAccessWindow(null);
     setLoading(true);
 
     try {
       const response = await api.post('/certificates/verify', formData);
       console.log('Verification response:', response.data);
       
-      if (response.data && response.data.certificate) {
-        setCertificate(response.data.certificate);
+      if (response.data && response.data.student && Array.isArray(response.data.certificates)) {
+        setStudentInfo(response.data.student);
+        setCertificates(response.data.certificates);
+        setAccessWindow(response.data.access_window || null);
       } else {
         setError('Certificate data not found in response');
       }
@@ -44,10 +52,10 @@ const PublicVerification = () => {
     }
   };
 
-  const handleDownload = async (format) => {
+  const handleDownload = async (certId, certCode, format) => {
     try {
       // Use centralized API config for consistent error handling
-      const downloadUrl = `/certificates/public/${certificate.id}/download/${format}`;
+      const downloadUrl = `/certificates/public/${certId}/download/${format}`;
       const response = await api.get(downloadUrl, {
         responseType: 'blob',
         headers: {
@@ -60,7 +68,7 @@ const PublicVerification = () => {
       const blobUrl = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = blobUrl;
-      link.setAttribute('download', `certificate-${certificate.certificate_id}.${format}`);
+      link.setAttribute('download', `certificate-${certCode}.${format}`);
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -71,7 +79,7 @@ const PublicVerification = () => {
     }
   };
 
-  const calculateDuration = () => {
+  const calculateDuration = (certificate) => {
     if (certificate?.course_start_date && certificate?.course_end_date) {
       const start = new Date(certificate.course_start_date);
       const end = new Date(certificate.course_end_date);
@@ -88,7 +96,7 @@ const PublicVerification = () => {
     return 'N/A';
   };
 
-  const getFileUrl = () => {
+  const getFileUrl = (certificate) => {
     if (certificate?.file_path) {
       // Use centralized URL utility for production-ready URLs
       return normalizeUrl(certificate.file_path);
@@ -165,16 +173,16 @@ const PublicVerification = () => {
                 </div>
               )}
 
-              {certificate && (
+              {studentInfo && certificates.length > 0 && (
                 <div className="mt-4">
                   <div className="card bg-light">
                     <div className="card-body">
                       <div className="row">
                         <div className="col-md-4 text-center">
-                          {certificate.student_image ? (
+                          {studentInfo.profile_image ? (
                             <img
-                              src={certificate.student_image}
-                              alt={certificate.student_name}
+                              src={normalizeUrl(studentInfo.profile_image)}
+                              alt={studentInfo.full_name}
                               className="img-fluid rounded-circle mb-3"
                               style={{ width: '150px', height: '150px', objectFit: 'cover' }}
                             />
@@ -183,96 +191,111 @@ const PublicVerification = () => {
                               <i className="bi bi-person" style={{ fontSize: '4rem', color: 'white' }}></i>
                             </div>
                           )}
-                          <h4>{certificate.student_name}</h4>
-                          <p className="text-muted">Student ID: {certificate.student_id}</p>
+                          <h4>{studentInfo.full_name}</h4>
+                          <p className="text-muted">Student ID: {studentInfo.student_id}</p>
+                          <p className="text-muted mb-0">
+                            Cohort: {studentInfo.cohort_name || 'N/A'}
+                          </p>
+                          {accessWindow && (
+                            <div className="mt-2">
+                              <span className={`badge ${accessWindow.enabled ? 'bg-success' : 'bg-secondary'}`}>
+                                {accessWindow.enabled ? 'Access Window Enabled' : 'Access Window Disabled'}
+                              </span>
+                              <div className="small text-muted mt-1">
+                                {accessWindow.start ? new Date(accessWindow.start).toLocaleDateString() : 'Now'} - {accessWindow.end ? new Date(accessWindow.end).toLocaleDateString() : 'Until closed'}
+                              </div>
+                            </div>
+                          )}
                         </div>
                         <div className="col-md-8">
-                          <h5 className="mb-3">Certificate Details</h5>
-                          <div className="row mb-2">
-                            <div className="col-md-6">
-                              <strong>Certificate ID:</strong> {certificate.certificate_id}
-                            </div>
-                            <div className="col-md-6">
-                              <strong>Course:</strong> {certificate.course_code} - {certificate.course_title}
-                            </div>
-                          </div>
-                          <div className="row mb-2">
-                            <div className="col-md-6">
-                              <strong>Duration:</strong> {calculateDuration()}
-                            </div>
-                            <div className="col-md-6">
-                              <strong>Issue Date:</strong> {certificate.issue_date ? new Date(certificate.issue_date).toLocaleDateString() : 'N/A'}
-                            </div>
-                          </div>
-                          {certificate.completion_date && (
-                            <div className="row mb-2">
-                              <div className="col-md-6">
-                                <strong>Completion Date:</strong> {new Date(certificate.completion_date).toLocaleDateString()}
-                              </div>
-                              {certificate.grade && (
+                          <h5 className="mb-3">Certificate Details ({certificates.length})</h5>
+                          {certificates.map((certificate) => (
+                            <div key={certificate.id} className="border rounded p-3 mb-3 bg-white">
+                              <div className="row mb-2">
                                 <div className="col-md-6">
-                                  <strong>Grade:</strong> <span className="badge bg-success">{certificate.grade}</span>
+                                  <strong>Certificate ID:</strong> {certificate.certificate_id}
+                                </div>
+                                <div className="col-md-6">
+                                  <strong>Course:</strong> {certificate.course_code} - {certificate.course_title}
+                                </div>
+                              </div>
+                              <div className="row mb-2">
+                                <div className="col-md-6">
+                                  <strong>Duration:</strong> {calculateDuration(certificate)}
+                                </div>
+                                <div className="col-md-6">
+                                  <strong>Issue Date:</strong> {certificate.issue_date ? new Date(certificate.issue_date).toLocaleDateString() : 'N/A'}
+                                </div>
+                              </div>
+                              {certificate.completion_date && (
+                                <div className="row mb-2">
+                                  <div className="col-md-6">
+                                    <strong>Completion Date:</strong> {new Date(certificate.completion_date).toLocaleDateString()}
+                                  </div>
+                                  {certificate.grade && (
+                                    <div className="col-md-6">
+                                      <strong>Grade:</strong> <span className="badge bg-success">{certificate.grade}</span>
+                                    </div>
+                                  )}
                                 </div>
                               )}
-                            </div>
-                          )}
-                          {certificate.course_start_date && certificate.course_end_date && (
-                            <div className="row mb-3">
-                              <div className="col-md-6">
-                                <strong>Course Period:</strong> {new Date(certificate.course_start_date).toLocaleDateString()} - {new Date(certificate.course_end_date).toLocaleDateString()}
-                              </div>
-                            </div>
-                          )}
-
-                          {/* Certificate Preview */}
-                          {getFileUrl() && (
-                            <div className="mb-3">
-                              <strong>Certificate:</strong>
-                              <div className="mt-2 text-center">
-                                {certificate.file_type === 'pdf' ? (
-                                  <div className="p-3 bg-white rounded">
-                                    <i className="bi bi-file-pdf" style={{ fontSize: '3rem', color: '#dc3545' }}></i>
-                                    <p className="mt-2">PDF Certificate</p>
-                                    <a href={getFileUrl()} target="_blank" rel="noopener noreferrer" className="btn btn-sm btn-outline-danger">
-                                      <i className="bi bi-eye me-2"></i>View PDF
-                                    </a>
+                              {certificate.course_start_date && certificate.course_end_date && (
+                                <div className="row mb-3">
+                                  <div className="col-md-12">
+                                    <strong>Course Period:</strong> {new Date(certificate.course_start_date).toLocaleDateString()} - {new Date(certificate.course_end_date).toLocaleDateString()}
                                   </div>
-                                ) : (
-                                  <img
-                                    src={getFileUrl()}
-                                    alt="Certificate"
-                                    className="img-fluid border rounded"
-                                    style={{ maxHeight: '400px' }}
-                                  />
-                                )}
+                                </div>
+                              )}
+
+                              {getFileUrl(certificate) && (
+                                <div className="mb-3">
+                                  <strong>Certificate:</strong>
+                                  <div className="mt-2 text-center">
+                                    {certificate.file_type === 'pdf' ? (
+                                      <div className="p-3 bg-light rounded">
+                                        <i className="bi bi-file-pdf" style={{ fontSize: '3rem', color: '#dc3545' }}></i>
+                                        <p className="mt-2">PDF Certificate</p>
+                                        <a href={getFileUrl(certificate)} target="_blank" rel="noopener noreferrer" className="btn btn-sm btn-outline-danger">
+                                          <i className="bi bi-eye me-2"></i>View PDF
+                                        </a>
+                                      </div>
+                                    ) : (
+                                      <img
+                                        src={getFileUrl(certificate)}
+                                        alt="Certificate"
+                                        className="img-fluid border rounded"
+                                        style={{ maxHeight: '300px' }}
+                                      />
+                                    )}
+                                  </div>
+                                </div>
+                              )}
+
+                              <div className="mt-3">
+                                <strong>Download Certificate:</strong>
+                                <div className="d-flex gap-2 flex-wrap mt-2">
+                                  <button
+                                    className="btn btn-sm btn-outline-primary"
+                                    onClick={() => handleDownload(certificate.id, certificate.certificate_id, 'png')}
+                                  >
+                                    <i className="bi bi-download me-1"></i>PNG
+                                  </button>
+                                  <button
+                                    className="btn btn-sm btn-outline-success"
+                                    onClick={() => handleDownload(certificate.id, certificate.certificate_id, 'jpeg')}
+                                  >
+                                    <i className="bi bi-download me-1"></i>JPEG
+                                  </button>
+                                  <button
+                                    className="btn btn-sm btn-outline-danger"
+                                    onClick={() => handleDownload(certificate.id, certificate.certificate_id, 'pdf')}
+                                  >
+                                    <i className="bi bi-download me-1"></i>PDF
+                                  </button>
+                                </div>
                               </div>
                             </div>
-                          )}
-
-                          {/* Download Options */}
-                          <div className="mt-3">
-                            <strong>Download Certificate:</strong>
-                            <div className="d-flex gap-2 flex-wrap mt-2">
-                              <button
-                                className="btn btn-sm btn-outline-primary"
-                                onClick={() => handleDownload('png')}
-                              >
-                                <i className="bi bi-download me-1"></i>PNG
-                              </button>
-                              <button
-                                className="btn btn-sm btn-outline-success"
-                                onClick={() => handleDownload('jpeg')}
-                              >
-                                <i className="bi bi-download me-1"></i>JPEG
-                              </button>
-                              <button
-                                className="btn btn-sm btn-outline-danger"
-                                onClick={() => handleDownload('pdf')}
-                              >
-                                <i className="bi bi-download me-1"></i>PDF
-                              </button>
-                            </div>
-                          </div>
+                          ))}
                         </div>
                       </div>
                     </div>

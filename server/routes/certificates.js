@@ -8,6 +8,7 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
+const { normalizeProfileImage } = require('../utils/normalizeProfileImage');
 
 // Configure multer for certificate file uploads
 const storage = multer.diskStorage({
@@ -45,9 +46,59 @@ function generateCertificateId() {
   return 'CERT-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9).toUpperCase();
 }
 
-// Get all certificates (Admin only)
-router.get('/', authenticateToken, requireRole('Admin'), async (req, res) => {
+async function isAcademyTeam(user) {
+  if (!user) return false;
+  if (user.role === 'Admin') return true;
+  if (user.role === 'Instructor') return true;
+  if (user.role === 'DepartmentHead') {
+    try {
+      const dept = await db.get('SELECT name FROM departments WHERE manager_id = ?', [user.id]);
+      const deptName = String(dept?.name || '').toLowerCase();
+      return deptName.includes('academy') || deptName.includes('elearning') || deptName.includes('e-learning');
+    } catch (_err) {
+      return false;
+    }
+  }
+  if (user.role === 'Staff') {
+    try {
+      const staff = await db.get('SELECT department, position FROM staff WHERE user_id = ?', [user.id]);
+      const deptName = String(staff?.department || '').toLowerCase();
+      const positionName = String(staff?.position || '').toLowerCase();
+      return (
+        deptName.includes('academy') ||
+        deptName.includes('elearning') ||
+        deptName.includes('e-learning') ||
+        (positionName.includes('academy') && positionName.includes('coordinator'))
+      );
+    } catch (_err) {
+      return false;
+    }
+  }
+  return false;
+}
+
+function isCertificateWindowOpenForCohort(row) {
+  const enabled = Number(row?.cert_access_enabled || 0) === 1;
+  if (!enabled) return false;
+  const now = new Date();
+  if (row?.cert_access_start) {
+    const start = new Date(row.cert_access_start);
+    if (now < start) return false;
+  }
+  if (row?.cert_access_end) {
+    const end = new Date(row.cert_access_end);
+    if (now > end) return false;
+  }
+  return true;
+}
+
+// Get all certificates (Admin + Academy team)
+router.get('/', authenticateToken, requireRole('Admin', 'Staff', 'Instructor', 'DepartmentHead'), async (req, res) => {
   try {
+    const hasAccess = await isAcademyTeam(req.user);
+    if (!hasAccess) {
+      return res.status(403).json({ error: 'Only Academy team and Admin can view certificates' });
+    }
     const { search, student_id, course_id } = req.query;
     let query = `
       SELECT c.*, 
@@ -57,11 +108,14 @@ router.get('/', authenticateToken, requireRole('Admin'), async (req, res) => {
              co.course_code,
              co.title as course_title,
              co.start_date as course_start_date,
-             co.end_date as course_end_date
+             co.end_date as course_end_date,
+             s.cohort_id,
+             ch.name as cohort_name
       FROM certificates c
       JOIN students s ON c.student_id = s.id
       JOIN users u ON s.user_id = u.id
       JOIN courses co ON c.course_id = co.id
+      LEFT JOIN cohorts ch ON ch.id = s.cohort_id
       WHERE 1=1
     `;
     const params = [];
@@ -87,6 +141,40 @@ router.get('/', authenticateToken, requireRole('Admin'), async (req, res) => {
   } catch (error) {
     console.error('Get certificates error:', error);
     res.status(500).json({ error: 'Failed to fetch certificates' });
+  }
+});
+
+// Search certificates by student name or ID (Admin/Academy team)
+router.get('/search/:query', authenticateToken, requireRole('Admin', 'Staff', 'Instructor', 'DepartmentHead'), async (req, res) => {
+  try {
+    const hasAccess = await isAcademyTeam(req.user);
+    if (!hasAccess) {
+      return res.status(403).json({ error: 'Only Academy team and Admin can search certificates' });
+    }
+    const query = req.params.query;
+
+    const certificates = await db.all(
+      `SELECT c.*, 
+              s.student_id as student_code,
+              u.name as student_name,
+              u.profile_image as student_image,
+              co.course_code,
+              co.title as course_title,
+              co.start_date as course_start_date,
+              co.end_date as course_end_date
+       FROM certificates c
+       JOIN students s ON c.student_id = s.id
+       JOIN users u ON s.user_id = u.id
+       JOIN courses co ON c.course_id = co.id
+       WHERE u.name LIKE ? OR s.student_id LIKE ? OR c.certificate_id LIKE ?
+       ORDER BY c.created_at DESC`,
+      [`%${query}%`, `%${query}%`, `%${query}%`]
+    );
+
+    res.json({ certificates });
+  } catch (error) {
+    console.error('Search certificates error:', error);
+    res.status(500).json({ error: 'Failed to search certificates' });
   }
 });
 
@@ -134,42 +222,16 @@ router.get('/:id', authenticateToken, async (req, res) => {
   }
 });
 
-// Search certificates by student name or ID (Admin/Staff)
-router.get('/search/:query', authenticateToken, requireRole('Admin', 'Staff'), async (req, res) => {
-  try {
-    const query = req.params.query;
-
-    const certificates = await db.all(
-      `SELECT c.*, 
-              s.student_id as student_code,
-              u.name as student_name,
-              u.profile_image as student_image,
-              co.course_code,
-              co.title as course_title,
-              co.start_date as course_start_date,
-              co.end_date as course_end_date
-       FROM certificates c
-       JOIN students s ON c.student_id = s.id
-       JOIN users u ON s.user_id = u.id
-       JOIN courses co ON c.course_id = co.id
-       WHERE u.name LIKE ? OR s.student_id LIKE ? OR c.certificate_id LIKE ?
-       ORDER BY c.created_at DESC`,
-      [`%${query}%`, `%${query}%`, `%${query}%`]
-    );
-
-    res.json({ certificates });
-  } catch (error) {
-    console.error('Search certificates error:', error);
-    res.status(500).json({ error: 'Failed to search certificates' });
-  }
-});
-
-// Create certificate with file upload (Admin only)
-router.post('/', authenticateToken, requireRole('Admin'), upload.single('certificate_file'), [
+// Create certificate with file upload (Admin + Academy team)
+router.post('/', authenticateToken, requireRole('Admin', 'Staff', 'Instructor', 'DepartmentHead'), upload.single('certificate_file'), [
   body('student_id').isInt().withMessage('Student ID is required'),
   body('course_id').isInt().withMessage('Course ID is required')
 ], async (req, res) => {
   try {
+    const hasAccess = await isAcademyTeam(req.user);
+    if (!hasAccess) {
+      return res.status(403).json({ error: 'Only Academy team and Admin can create certificates' });
+    }
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       return res.status(400).json({ errors: errors.array() });
@@ -259,9 +321,13 @@ router.post('/', authenticateToken, requireRole('Admin'), upload.single('certifi
   }
 });
 
-// Update certificate (Admin only)
-router.put('/:id', authenticateToken, requireRole('Admin'), upload.single('certificate_file'), async (req, res) => {
+// Update certificate (Admin + Academy team)
+router.put('/:id', authenticateToken, requireRole('Admin', 'Staff', 'Instructor', 'DepartmentHead'), upload.single('certificate_file'), async (req, res) => {
   try {
+    const hasAccess = await isAcademyTeam(req.user);
+    if (!hasAccess) {
+      return res.status(403).json({ error: 'Only Academy team and Admin can edit certificates' });
+    }
     const certificateId = req.params.id;
     const { grade, issue_date, completion_date } = req.body;
 
@@ -326,9 +392,13 @@ router.put('/:id', authenticateToken, requireRole('Admin'), upload.single('certi
   }
 });
 
-// Delete certificate (Admin only)
-router.delete('/:id', authenticateToken, requireRole('Admin'), async (req, res) => {
+// Delete certificate (Admin + Academy team)
+router.delete('/:id', authenticateToken, requireRole('Admin', 'Staff', 'Instructor', 'DepartmentHead'), async (req, res) => {
   try {
+    const hasAccess = await isAcademyTeam(req.user);
+    if (!hasAccess) {
+      return res.status(403).json({ error: 'Only Academy team and Admin can delete certificates' });
+    }
     const certificateId = req.params.id;
 
     const certificate = await db.get('SELECT file_path FROM certificates WHERE id = ?', [certificateId]);
@@ -364,35 +434,54 @@ router.post('/verify', async (req, res) => {
       return res.status(400).json({ error: 'Student name and ID are required' });
     }
 
-    const certificate = await db.get(
+    const certificates = await db.all(
       `SELECT c.*, 
               s.student_id as student_code,
+              s.cohort_id,
               u.name as student_name,
               u.profile_image as student_image,
               co.course_code,
               co.title as course_title,
               co.start_date as course_start_date,
-              co.end_date as course_end_date
+              co.end_date as course_end_date,
+              ch.name as cohort_name,
+              ch.cert_access_enabled,
+              ch.cert_access_start,
+              ch.cert_access_end
        FROM certificates c
        JOIN students s ON c.student_id = s.id
        JOIN users u ON s.user_id = u.id
        JOIN courses co ON c.course_id = co.id
+       LEFT JOIN cohorts ch ON ch.id = s.cohort_id
        WHERE LOWER(u.name) = LOWER(?) AND s.student_id = ?`,
       [student_name.trim(), student_id.trim()]
     );
 
-    if (!certificate) {
+    if (!certificates || certificates.length === 0) {
       return res.status(404).json({ error: 'Certificate not found. Please verify the student name and ID.' });
     }
 
+    const blockedByWindow = certificates.some((row) => !isCertificateWindowOpenForCohort(row));
+    if (blockedByWindow) {
+      return res.status(403).json({
+        error: 'Certificate access for this cohort is currently closed. Please contact Academy administration.'
+      });
+    }
+
+    const first = certificates[0];
+
     res.json({
       valid: true,
-      certificate: {
+      student: {
+        full_name: first.student_name,
+        student_id: first.student_code,
+        profile_image: normalizeProfileImage(first.student_image),
+        cohort_id: first.cohort_id,
+        cohort_name: first.cohort_name || null
+      },
+      certificates: certificates.map((certificate) => ({
         id: certificate.id,
         certificate_id: certificate.certificate_id,
-        student_name: certificate.student_name,
-        student_id: certificate.student_code,
-        student_image: certificate.student_image,
         course_code: certificate.course_code,
         course_title: certificate.course_title,
         course_start_date: certificate.course_start_date,
@@ -403,6 +492,11 @@ router.post('/verify', async (req, res) => {
         file_path: certificate.file_path,
         file_type: certificate.file_type,
         verification_code: certificate.verification_code
+      })),
+      access_window: {
+        enabled: Number(first.cert_access_enabled || 0) === 1,
+        start: first.cert_access_start || null,
+        end: first.cert_access_end || null
       }
     });
   } catch (error) {
@@ -486,9 +580,18 @@ router.get('/public/:id/download/:format', async (req, res) => {
     }
 
     const certificate = await db.get(
-      'SELECT file_path, certificate_id, file_type FROM certificates WHERE id = ? OR certificate_id = ?',
+      `SELECT c.file_path, c.certificate_id, c.file_type,
+              ch.cert_access_enabled, ch.cert_access_start, ch.cert_access_end
+       FROM certificates c
+       JOIN students s ON s.id = c.student_id
+       LEFT JOIN cohorts ch ON ch.id = s.cohort_id
+       WHERE c.id = ? OR c.certificate_id = ?`,
       [certificateId, certificateId]
     );
+
+    if (!isCertificateWindowOpenForCohort(certificate)) {
+      return res.status(403).json({ error: 'Certificate access window is closed for this cohort' });
+    }
 
     if (!certificate || !certificate.file_path) {
       return res.status(404).json({ error: 'Certificate not found' });
