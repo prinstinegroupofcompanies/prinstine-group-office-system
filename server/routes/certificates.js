@@ -9,11 +9,12 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const { normalizeProfileImage } = require('../utils/normalizeProfileImage');
+const { getUploadsRoot, resolveUploadsDiskPath } = require('../utils/uploadsRoot');
 
 // Configure multer for certificate file uploads
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    const uploadPath = path.join(__dirname, '../../uploads/certificates');
+    const uploadPath = path.join(getUploadsRoot(), 'certificates');
     if (!fs.existsSync(uploadPath)) {
       fs.mkdirSync(uploadPath, { recursive: true });
     }
@@ -484,8 +485,8 @@ router.delete('/:id', authenticateToken, requireRole('Admin', 'Staff', 'Instruct
 
     // Delete file
     if (certificate.file_path) {
-      const filePath = path.join(__dirname, '../../', certificate.file_path);
-      if (fs.existsSync(filePath)) {
+      const filePath = resolveUploadsDiskPath(certificate.file_path);
+      if (filePath && fs.existsSync(filePath)) {
         fs.unlinkSync(filePath);
       }
     }
@@ -673,9 +674,9 @@ router.get('/public/:id/download/:format', async (req, res) => {
       return res.status(404).json({ error: 'Certificate not found' });
     }
 
-    const filePath = path.join(__dirname, '../../', certificate.file_path);
+    const filePath = resolveUploadsDiskPath(certificate.file_path);
 
-    if (!fs.existsSync(filePath)) {
+    if (!filePath || !fs.existsSync(filePath)) {
       return res.status(404).json({ error: 'Certificate file not found' });
     }
 

@@ -6,6 +6,7 @@ const { authenticateToken, requireRole, getFinanceAccessUserIds } = require('../
 const { logAction } = require('../utils/audit');
 const { sendBulkNotifications, sendNotificationToUser, sendNotificationToRole } = require('../utils/notifications');
 const { normalizeProfileImage } = require('../utils/normalizeProfileImage');
+const { resolveUploadsDiskPath } = require('../utils/uploadsRoot');
 const crypto = require('crypto');
 
 // Generate unique student ID
@@ -369,7 +370,8 @@ router.get('/students/me/certificates', authenticateToken, requireRole('Student'
       });
     }
     const certs = await db.all(
-      `SELECT c.id, c.certificate_id, c.course_id, c.issue_date, c.grade, c.verification_code, c.pdf_path,
+      `SELECT c.id, c.certificate_id, c.course_id, c.issue_date, c.grade, c.verification_code,
+              COALESCE(c.file_path, c.pdf_path) as file_path,
               co.course_code, co.title as course_title
        FROM certificates c
        JOIN courses co ON c.course_id = co.id
@@ -379,7 +381,7 @@ router.get('/students/me/certificates', authenticateToken, requireRole('Student'
     );
     const withUrls = certs.map((cert) => ({
       ...cert,
-      download_url: cert.pdf_path
+      download_url: cert.file_path
         ? `/academy/students/me/certificates/${cert.id}/download`
         : null
     }));
@@ -405,15 +407,14 @@ router.get('/students/me/certificates/:id/download', authenticateToken, requireR
       });
     }
     const cert = await db.get(
-      'SELECT id, pdf_path, student_id FROM certificates WHERE id = ? AND student_id = ?',
+      'SELECT id, COALESCE(file_path, pdf_path) as file_path, student_id FROM certificates WHERE id = ? AND student_id = ?',
       [req.params.id, student.id]
     );
     if (!cert) return res.status(404).json({ error: 'Certificate not found' });
-    if (!cert.pdf_path) return res.status(404).json({ error: 'Certificate file not available' });
-    const path = require('path');
+    if (!cert.file_path) return res.status(404).json({ error: 'Certificate file not available' });
     const fs = require('fs');
-    const fullPath = path.isAbsolute(cert.pdf_path) ? cert.pdf_path : path.join(process.cwd(), cert.pdf_path);
-    if (!fs.existsSync(fullPath)) return res.status(404).json({ error: 'Certificate file not found' });
+    const fullPath = resolveUploadsDiskPath(cert.file_path);
+    if (!fullPath || !fs.existsSync(fullPath)) return res.status(404).json({ error: 'Certificate file not found' });
     res.sendFile(fullPath, { headers: { 'Content-Disposition': 'attachment; filename=certificate.pdf' } });
   } catch (e) {
     console.error('Certificate download error:', e);
