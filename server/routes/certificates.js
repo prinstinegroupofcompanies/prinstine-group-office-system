@@ -330,8 +330,9 @@ router.get('/:id', authenticateToken, async (req, res) => {
       return res.status(404).json({ error: 'Certificate not found' });
     }
 
-    // Check permissions - Admin can see all, students can only see their own
-    if (req.user.role !== 'Admin' && req.user.role !== 'Staff') {
+    // Check permissions - Academy team/Admin can see all, students can only see their own
+    const canAcademyViewAll = await isAcademyTeam(req.user);
+    if (!canAcademyViewAll) {
       const student = await db.get('SELECT id FROM students WHERE user_id = ?', [req.user.id]);
       if (!student || certificate.student_id !== student.id) {
         return res.status(403).json({ error: 'Insufficient permissions' });
@@ -680,8 +681,9 @@ router.get('/:id/download/:format', authenticateToken, async (req, res) => {
       return res.status(404).json({ error: 'Certificate not found' });
     }
 
-    // Check permissions
-    if (req.user.role !== 'Admin' && req.user.role !== 'Staff') {
+    // Check permissions - Academy team/Admin can download all, students can only download their own
+    const canAcademyViewAll = await isAcademyTeam(req.user);
+    if (!canAcademyViewAll) {
       const student = await db.get('SELECT id FROM students WHERE user_id = ?', [req.user.id]);
       if (!student || certificate.student_id !== student.id) {
         return res.status(403).json({ error: 'Insufficient permissions' });
