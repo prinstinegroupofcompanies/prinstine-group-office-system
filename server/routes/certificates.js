@@ -36,11 +36,48 @@ const fileFilter = (req, file, cb) => {
   }
 };
 
-const upload = multer({
+const certificateMaxUploadBytes = Number(process.env.CERTIFICATE_MAX_FILE_SIZE_MB || 0) > 0
+  ? Number(process.env.CERTIFICATE_MAX_FILE_SIZE_MB) * 1024 * 1024
+  : null;
+
+const uploadOptions = {
   storage: storage,
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
   fileFilter: fileFilter
-});
+};
+if (certificateMaxUploadBytes) {
+  uploadOptions.limits = { fileSize: certificateMaxUploadBytes };
+}
+
+const upload = multer(uploadOptions);
+
+function safeUnlink(filePath) {
+  if (!filePath) return;
+  try {
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+  } catch (unlinkErr) {
+    console.error('Failed to remove file:', filePath, unlinkErr.message);
+  }
+}
+
+function handleCertificateUpload(req, res, next) {
+  upload.single('certificate_file')(req, res, (err) => {
+    if (!err) return next();
+    if (err instanceof multer.MulterError) {
+      if (err.code === 'LIMIT_FILE_SIZE') {
+        const sizeInfo = certificateMaxUploadBytes
+          ? `${Math.round(certificateMaxUploadBytes / (1024 * 1024))}MB`
+          : 'the configured server limit';
+        return res.status(413).json({
+          error: `Certificate file is too large. Please upload a smaller file or increase server limit (${sizeInfo}).`
+        });
+      }
+      return res.status(400).json({ error: `Upload error: ${err.message}` });
+    }
+    return res.status(400).json({ error: err.message || 'Invalid upload request' });
+  });
+}
 
 // Generate certificate ID
 function generateCertificateId() {
@@ -268,7 +305,7 @@ router.get('/:id', authenticateToken, async (req, res) => {
 });
 
 // Create certificate with file upload (Admin + Academy team)
-router.post('/', authenticateToken, requireRole('Admin', 'Staff', 'Instructor', 'DepartmentHead'), upload.single('certificate_file'), [
+router.post('/', authenticateToken, requireRole('Admin', 'Staff', 'Instructor', 'DepartmentHead'), handleCertificateUpload, [
   body('student_id').isInt().withMessage('Student ID is required'),
   body('course_id').isInt().withMessage('Course ID is required')
 ], async (req, res) => {
@@ -377,14 +414,14 @@ router.post('/', authenticateToken, requireRole('Admin', 'Staff', 'Instructor', 
     console.error('Create certificate error:', error);
     if (req.file) {
       // Delete uploaded file on error
-      fs.unlinkSync(req.file.path);
+      safeUnlink(req.file.path);
     }
     res.status(500).json({ error: 'Failed to create certificate: ' + error.message });
   }
 });
 
 // Update certificate (Admin + Academy team)
-router.put('/:id', authenticateToken, requireRole('Admin', 'Staff', 'Instructor', 'DepartmentHead'), upload.single('certificate_file'), async (req, res) => {
+router.put('/:id', authenticateToken, requireRole('Admin', 'Staff', 'Instructor', 'DepartmentHead'), handleCertificateUpload, async (req, res) => {
   try {
     const hasAccess = await isAcademyTeam(req.user);
     if (!hasAccess) {
@@ -421,10 +458,8 @@ router.put('/:id', authenticateToken, requireRole('Admin', 'Staff', 'Instructor'
     if (req.file) {
       // Delete old file
       if (certificate.file_path) {
-        const oldFilePath = path.join(__dirname, '../../', certificate.file_path);
-        if (fs.existsSync(oldFilePath)) {
-          fs.unlinkSync(oldFilePath);
-        }
+        const oldFilePath = resolveUploadsDiskPath(certificate.file_path);
+        safeUnlink(oldFilePath);
       }
 
       const fileExt = path.extname(req.file.filename).toLowerCase();
@@ -460,7 +495,7 @@ router.put('/:id', authenticateToken, requireRole('Admin', 'Staff', 'Instructor'
   } catch (error) {
     console.error('Update certificate error:', error);
     if (req.file) {
-      fs.unlinkSync(req.file.path);
+      safeUnlink(req.file.path);
     }
     res.status(500).json({ error: 'Failed to update certificate' });
   }
@@ -487,7 +522,7 @@ router.delete('/:id', authenticateToken, requireRole('Admin', 'Staff', 'Instruct
     if (certificate.file_path) {
       const filePath = resolveUploadsDiskPath(certificate.file_path);
       if (filePath && fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath);
+        safeUnlink(filePath);
       }
     }
 
@@ -616,9 +651,9 @@ router.get('/:id/download/:format', authenticateToken, async (req, res) => {
       return res.status(404).json({ error: 'Certificate file not found' });
     }
 
-    const filePath = path.join(__dirname, '../../', certificate.resolved_file_path);
+    const filePath = resolveUploadsDiskPath(certificate.resolved_file_path);
 
-    if (!fs.existsSync(filePath)) {
+    if (!filePath || !fs.existsSync(filePath)) {
       return res.status(404).json({ error: 'Certificate file not found on server' });
     }
 
@@ -666,12 +701,16 @@ router.get('/public/:id/download/:format', async (req, res) => {
       [certificateId, certificateId]
     );
 
+    if (!certificate) {
+      return res.status(404).json({ error: 'Certificate not found' });
+    }
+
     if (!isCertificateWindowOpenForCohort(certificate)) {
       return res.status(403).json({ error: 'Certificate access window is closed for this cohort' });
     }
 
-    if (!certificate || !certificate.file_path) {
-      return res.status(404).json({ error: 'Certificate not found' });
+    if (!certificate.file_path) {
+      return res.status(404).json({ error: 'Certificate file not found' });
     }
 
     const filePath = resolveUploadsDiskPath(certificate.file_path);

@@ -8,6 +8,7 @@ const { sendBulkNotifications, sendNotificationToUser, sendNotificationToRole } 
 const { normalizeProfileImage } = require('../utils/normalizeProfileImage');
 const { resolveUploadsDiskPath } = require('../utils/uploadsRoot');
 const crypto = require('crypto');
+const path = require('path');
 
 // Generate unique student ID
 function generateStudentId() {
@@ -415,7 +416,15 @@ router.get('/students/me/certificates/:id/download', authenticateToken, requireR
     const fs = require('fs');
     const fullPath = resolveUploadsDiskPath(cert.file_path);
     if (!fullPath || !fs.existsSync(fullPath)) return res.status(404).json({ error: 'Certificate file not found' });
-    res.sendFile(fullPath, { headers: { 'Content-Disposition': 'attachment; filename=certificate.pdf' } });
+    const ext = (path.extname(fullPath) || '.pdf').toLowerCase();
+    const fileName = `certificate-${cert.id}${ext}`;
+    const contentType = ext === '.pdf' ? 'application/pdf' : ext === '.png' ? 'image/png' : 'image/jpeg';
+    res.sendFile(fullPath, {
+      headers: {
+        'Content-Type': contentType,
+        'Content-Disposition': `attachment; filename="${fileName}"`
+      }
+    });
   } catch (e) {
     console.error('Certificate download error:', e);
     res.status(500).json({ error: 'Download failed' });

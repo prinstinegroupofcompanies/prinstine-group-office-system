@@ -93,11 +93,6 @@ const CertificateForm = ({ certificate, onClose }) => {
         return;
       }
       
-      if (selectedFile.size > 10 * 1024 * 1024) {
-        setError('File size must be less than 10MB.');
-        return;
-      }
-      
       setFile(selectedFile);
       setError('');
     }
@@ -243,7 +238,7 @@ const CertificateForm = ({ certificate, onClose }) => {
               <div className="mb-3">
                 <label className="form-label">
                   Certificate File {!certificate && '*'}
-                  <small className="text-muted ms-2">(PNG, JPEG, or PDF - Max 10MB)</small>
+                  <small className="text-muted ms-2">(PNG, JPEG, or PDF)</small>
                 </label>
                 <input
                   type="file"

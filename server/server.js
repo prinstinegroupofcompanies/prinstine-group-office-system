@@ -97,16 +97,19 @@ app.use((req, res, next) => {
   next();
 });
 
+const apiBodyLimitMb = Number(process.env.API_BODY_LIMIT_MB || 0);
+const apiBodyLimit = apiBodyLimitMb > 0 ? `${apiBodyLimitMb}mb` : '50mb';
+
 // JSON body parser
-app.use(express.json({ 
-  limit: '10mb',
+app.use(express.json({
+  limit: apiBodyLimit,
   strict: false
 }));
 
 // URL-encoded body parser
-app.use(express.urlencoded({ 
-  extended: true, 
-  limit: '10mb' 
+app.use(express.urlencoded({
+  extended: true,
+  limit: apiBodyLimit
 }));
 
 // System audit: optional JWT user id + per-request HTTP log (ICT head reviews via /api/audit-logs)

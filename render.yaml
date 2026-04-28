@@ -23,6 +23,10 @@ services:
         value: /var/data/pms.db
       - key: UPLOADS_DIR
         value: /var/data/uploads
+      - key: API_BODY_LIMIT_MB
+        value: 50
+      - key: CERTIFICATE_MAX_FILE_SIZE_MB
+        value: 0
       - key: FRONTEND_URL
         sync: false
       - key: JWT_SECRET
