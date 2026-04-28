@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import api from '../../config/api';
-import { normalizeUrl } from '../../utils/apiUrl';
+import { getApiBaseUrl, normalizeUrl } from '../../utils/apiUrl';
 
 const PublicVerification = () => {
   const [formData, setFormData] = useState({
@@ -97,8 +97,11 @@ const PublicVerification = () => {
   };
 
   const getFileUrl = (certificate) => {
+    if (certificate?.id) {
+      // Use API endpoint to ensure view works even for legacy file_path formats.
+      return `${getApiBaseUrl()}/certificates/public/${certificate.id}/download/original`;
+    }
     if (certificate?.file_path) {
-      // Use centralized URL utility for production-ready URLs
       return normalizeUrl(certificate.file_path);
     }
     return null;

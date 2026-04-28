@@ -130,9 +130,37 @@ function isCertificateWindowOpenForCohort(row) {
   return true;
 }
 
+function toPublicCertificatePath(rawPath) {
+  if (!rawPath || typeof rawPath !== 'string') return null;
+  const trimmed = rawPath.trim();
+  if (!trimmed) return null;
+
+  if (trimmed.startsWith('http://') || trimmed.startsWith('https://') || trimmed.startsWith('data:')) {
+    return trimmed;
+  }
+  if (trimmed.startsWith('/uploads/')) return trimmed;
+  if (trimmed.startsWith('uploads/')) return `/${trimmed}`;
+
+  const normalized = path.resolve(trimmed);
+  const uploadsRoot = path.resolve(getUploadsRoot());
+
+  if (normalized.startsWith(uploadsRoot)) {
+    const rel = path.relative(uploadsRoot, normalized).split(path.sep).join('/');
+    return rel ? `/uploads/${rel}` : '/uploads';
+  }
+
+  const marker = '/uploads/';
+  const markerIdx = normalized.split(path.sep).join('/').indexOf(marker);
+  if (markerIdx >= 0) {
+    return normalized.split(path.sep).join('/').slice(markerIdx);
+  }
+
+  return trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
+}
+
 function normalizeCertificateRow(certificate) {
   if (!certificate) return certificate;
-  const resolvedFilePath = certificate.file_path || certificate.pdf_path || null;
+  const resolvedFilePath = toPublicCertificatePath(certificate.file_path || certificate.pdf_path || null);
   const inferredType = String(resolvedFilePath || '').toLowerCase().endsWith('.pdf')
     ? 'pdf'
     : (String(resolvedFilePath || '').toLowerCase().endsWith('.png') ? 'png' : (resolvedFilePath ? 'jpeg' : null));
@@ -614,7 +642,7 @@ router.post('/verify', async (req, res) => {
         issue_date: certificate.issue_date,
         completion_date: certificate.completion_date,
         grade: certificate.grade,
-        file_path: certificate.file_path || certificate.pdf_path || null,
+        file_path: toPublicCertificatePath(certificate.file_path || certificate.pdf_path || null),
         file_type: certificate.file_type || (String(certificate.file_path || certificate.pdf_path || '').toLowerCase().endsWith('.pdf') ? 'pdf' : 'image'),
         verification_code: certificate.verification_code
       })),
