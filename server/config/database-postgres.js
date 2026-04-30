@@ -203,6 +203,44 @@ class PostgreSQLDatabase {
       throw new Error('Database not connected');
     }
 
+    const resyncSequenceIfNeeded = async (error, pgSqlText, sqlParams) => {
+      const message = error && error.message ? error.message : '';
+      if (!message.includes('duplicate key value violates unique constraint')) {
+        return null;
+      }
+
+      const constraintMatch = message.match(/unique constraint "([^"]+)"/i);
+      const constraintName = constraintMatch ? constraintMatch[1] : null;
+      if (!constraintName || !constraintName.endsWith('_pkey')) {
+        return null;
+      }
+
+      const tableName = constraintName.replace(/_pkey$/i, '');
+      if (!/^[A-Za-z0-9_]+$/.test(tableName)) {
+        return null;
+      }
+
+      const insertRegex = new RegExp(`INSERT\\s+INTO\\s+${tableName}\\b`, 'i');
+      if (!insertRegex.test(pgSqlText)) {
+        return null;
+      }
+
+      try {
+        await this.pool.query(
+          `SELECT setval(pg_get_serial_sequence('${tableName}', 'id'), (SELECT COALESCE(MAX(id), 1) FROM ${tableName}))`
+        );
+      } catch (syncErr) {
+        console.error(`❌ Failed to sync sequence for ${tableName}:`, syncErr.message);
+        return null;
+      }
+
+      try {
+        return await this.pool.query(pgSqlText, sqlParams);
+      } catch (retryErr) {
+        return null;
+      }
+    };
+
     try {
       const pgSql = this.convertSQLiteToPostgres(sql, params);
       
@@ -227,6 +265,18 @@ class PostgreSQLDatabase {
         changes: result.rowCount || 0
       };
     } catch (err) {
+      const pgSql = this.convertSQLiteToPostgres(sql, params);
+      const retryResult = await resyncSequenceIfNeeded(err, pgSql, params);
+      if (retryResult) {
+        let lastID = null;
+        if (retryResult.rows && retryResult.rows.length > 0) {
+          lastID = retryResult.rows[0].id || retryResult.rows[0].ID || null;
+        }
+        return {
+          lastID: lastID,
+          changes: retryResult.rowCount || 0
+        };
+      }
       console.error('❌ Database run() error:', err.message);
       if (process.env.DEBUG_SQL === '1') {
         console.error('📝 Original SQL (first 200):', sql.substring(0, 200));
