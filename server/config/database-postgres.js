@@ -215,23 +215,35 @@ class PostgreSQLDatabase {
         return null;
       }
 
-      const tableName = constraintName.replace(/_pkey$/i, '');
-      if (!/^[A-Za-z0-9_]+$/.test(tableName)) {
+      const insertMatch = pgSqlText.match(/INSERT\s+INTO\s+([A-Za-z0-9_]+)/i);
+      const insertTable = insertMatch ? insertMatch[1] : null;
+      if (!insertTable || !/^[A-Za-z0-9_]+$/.test(insertTable)) {
         return null;
       }
 
-      const insertRegex = new RegExp(`INSERT\\s+INTO\\s+${tableName}\\b`, 'i');
-      if (!insertRegex.test(pgSqlText)) {
-        return null;
-      }
+      const constraintTable = constraintName.replace(/_pkey$/i, '');
+      const tableName = /^[A-Za-z0-9_]+$/.test(constraintTable) ? constraintTable : insertTable;
+      const tableToSync = insertTable;
 
       try {
         await this.pool.query(
-          `SELECT setval(pg_get_serial_sequence('${tableName}', 'id'), (SELECT COALESCE(MAX(id), 1) FROM ${tableName}))`
+          `SELECT setval(pg_get_serial_sequence('${tableToSync}', 'id'), (SELECT COALESCE(MAX(id), 1) FROM ${tableToSync}))`
         );
       } catch (syncErr) {
-        console.error(`❌ Failed to sync sequence for ${tableName}:`, syncErr.message);
-        return null;
+        // Fallback: handle renamed-table constraints (e.g., users_new_pkey on users table)
+        if (tableName !== tableToSync) {
+          try {
+            await this.pool.query(
+              `SELECT setval(pg_get_serial_sequence('${tableName}', 'id'), (SELECT COALESCE(MAX(id), 1) FROM ${tableName}))`
+            );
+          } catch (fallbackErr) {
+            console.error(`❌ Failed to sync sequence for ${tableToSync}/${tableName}:`, fallbackErr.message);
+            return null;
+          }
+        } else {
+          console.error(`❌ Failed to sync sequence for ${tableToSync}:`, syncErr.message);
+          return null;
+        }
       }
 
       try {

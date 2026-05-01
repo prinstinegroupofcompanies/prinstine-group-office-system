@@ -203,9 +203,56 @@ async function initializeDatabase() {
     const dbPath = process.env.DB_PATH || path.resolve(__dirname, '../../database/pms.db');
     console.log('Using database path:', dbPath);
 
+    const quoteIdent = (value) => `"${String(value).replace(/"/g, '""')}"`;
+    const normalizeLegacyPrimaryKeyConstraints = async () => {
+      if (!process.env.DATABASE_URL) return;
+
+      try {
+        const legacyPkConstraints = await db.all(`
+          SELECT
+            con.conname AS constraint_name,
+            rel.relname AS table_name
+          FROM pg_constraint con
+          JOIN pg_class rel ON rel.oid = con.conrelid
+          JOIN pg_namespace nsp ON nsp.oid = rel.relnamespace
+          WHERE con.contype = 'p'
+            AND nsp.nspname = 'public'
+            AND con.conname LIKE '%\\_new_pkey' ESCAPE '\\'
+        `);
+
+        for (const row of legacyPkConstraints) {
+          const oldName = row.constraint_name;
+          const tableName = row.table_name;
+          const expectedName = `${tableName}_pkey`;
+          if (!oldName || !tableName || oldName === expectedName) continue;
+
+          const existingExpected = await db.get(`
+            SELECT 1
+            FROM pg_constraint con
+            JOIN pg_class rel ON rel.oid = con.conrelid
+            JOIN pg_namespace nsp ON nsp.oid = rel.relnamespace
+            WHERE con.contype = 'p'
+              AND nsp.nspname = 'public'
+              AND rel.relname = ?
+              AND con.conname = ?
+          `, [tableName, expectedName]);
+
+          if (existingExpected) continue;
+
+          await db.run(
+            `ALTER TABLE ${quoteIdent(tableName)} RENAME CONSTRAINT ${quoteIdent(oldName)} TO ${quoteIdent(expectedName)}`
+          );
+          console.log(`✓ Renamed legacy primary key constraint: ${oldName} -> ${expectedName}`);
+        }
+      } catch (err) {
+        console.warn('PostgreSQL PK-constraint normalization skipped:', err.message);
+      }
+    };
+
     try {
     await db.connect();
     console.log('Database connected successfully');
+    await normalizeLegacyPrimaryKeyConstraints();
     } catch (dbError) {
       // If PostgreSQL connection fails, provide helpful error and exit
       if (process.env.DATABASE_URL) {
