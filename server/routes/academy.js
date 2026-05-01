@@ -373,6 +373,7 @@ router.get('/students/me/certificates', authenticateToken, requireRole('Student'
     const certs = await db.all(
       `SELECT c.id, c.certificate_id, c.course_id, c.issue_date, c.grade, c.verification_code,
               COALESCE(c.file_path, c.pdf_path) as file_path,
+              c.file_data_url,
               co.course_code, co.title as course_title
        FROM certificates c
        JOIN courses co ON c.course_id = co.id
@@ -382,7 +383,7 @@ router.get('/students/me/certificates', authenticateToken, requireRole('Student'
     );
     const withUrls = certs.map((cert) => ({
       ...cert,
-      download_url: cert.file_path
+      download_url: (cert.file_path || cert.file_data_url)
         ? `/academy/students/me/certificates/${cert.id}/download`
         : null
     }));
@@ -408,23 +409,40 @@ router.get('/students/me/certificates/:id/download', authenticateToken, requireR
       });
     }
     const cert = await db.get(
-      'SELECT id, COALESCE(file_path, pdf_path) as file_path, student_id FROM certificates WHERE id = ? AND student_id = ?',
+      'SELECT id, certificate_id, COALESCE(file_path, pdf_path) as file_path, file_data_url, student_id FROM certificates WHERE id = ? AND student_id = ?',
       [req.params.id, student.id]
     );
     if (!cert) return res.status(404).json({ error: 'Certificate not found' });
-    if (!cert.file_path) return res.status(404).json({ error: 'Certificate file not available' });
     const fs = require('fs');
-    const fullPath = resolveUploadsDiskPath(cert.file_path);
-    if (!fullPath || !fs.existsSync(fullPath)) return res.status(404).json({ error: 'Certificate file not found' });
-    const ext = (path.extname(fullPath) || '.pdf').toLowerCase();
-    const fileName = `certificate-${cert.id}${ext}`;
-    const contentType = ext === '.pdf' ? 'application/pdf' : ext === '.png' ? 'image/png' : 'image/jpeg';
-    res.sendFile(fullPath, {
-      headers: {
-        'Content-Type': contentType,
-        'Content-Disposition': `attachment; filename="${fileName}"`
+    const fullPath = cert.file_path ? resolveUploadsDiskPath(cert.file_path) : null;
+    if (fullPath && fs.existsSync(fullPath)) {
+      const ext = (path.extname(fullPath) || '.pdf').toLowerCase();
+      const fileName = `certificate-${cert.certificate_id || cert.id}${ext}`;
+      const contentType = ext === '.pdf' ? 'application/pdf' : ext === '.png' ? 'image/png' : 'image/jpeg';
+      return res.sendFile(fullPath, {
+        headers: {
+          'Content-Type': contentType,
+          'Content-Disposition': `attachment; filename="${fileName}"`
+        }
+      });
+    }
+
+    if (cert.file_data_url && typeof cert.file_data_url === 'string') {
+      const match = cert.file_data_url.match(/^data:([^;]+);base64,(.+)$/i);
+      if (match) {
+        const mime = String(match[1] || 'application/octet-stream').toLowerCase();
+        const ext =
+          mime === 'application/pdf' ? '.pdf' : mime === 'image/png' ? '.png' : mime === 'image/jpeg' ? '.jpg' : '';
+        const fileName = `certificate-${cert.certificate_id || cert.id}${ext}`;
+        const bytes = Buffer.from(match[2], 'base64');
+        res.setHeader('Content-Type', mime);
+        res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+        res.setHeader('Content-Length', bytes.length);
+        return res.send(bytes);
       }
-    });
+    }
+
+    return res.status(404).json({ error: 'Certificate file not available' });
   } catch (e) {
     console.error('Certificate download error:', e);
     res.status(500).json({ error: 'Download failed' });

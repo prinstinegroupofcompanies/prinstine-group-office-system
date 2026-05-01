@@ -172,6 +172,32 @@ function normalizeCertificateRow(certificate) {
   };
 }
 
+function toDataUrlFromUpload(file) {
+  if (!file || !file.path || !fs.existsSync(file.path)) return null;
+  try {
+    const bytes = fs.readFileSync(file.path);
+    const mime = (file.mimetype || 'application/octet-stream').toLowerCase();
+    return `data:${mime};base64,${bytes.toString('base64')}`;
+  } catch (_err) {
+    return null;
+  }
+}
+
+function decodeDataUrl(dataUrl) {
+  if (!dataUrl || typeof dataUrl !== 'string') return null;
+  const trimmed = dataUrl.trim();
+  const match = trimmed.match(/^data:([^;]+);base64,(.+)$/i);
+  if (!match) return null;
+  try {
+    return {
+      mime: String(match[1] || 'application/octet-stream').toLowerCase(),
+      buffer: Buffer.from(match[2], 'base64')
+    };
+  } catch (_err) {
+    return null;
+  }
+}
+
 /** Resolve persisted path (legacy web, absolute disk, pdf_path only, etc.) to an existing file path. */
 function resolveCertificateAbsoluteDiskPath(record) {
   const raw = record.resolved_file_path || record.file_path || record.pdf_path || null;
@@ -197,6 +223,31 @@ function resolveCertificateAbsoluteDiskPath(record) {
     if (fs.existsSync(candidate)) return candidate;
   }
   return null;
+}
+
+function sendCertificateDataUrlResponse(res, dataUrl, friendlyCertificateId) {
+  const decoded = decodeDataUrl(dataUrl);
+  if (!decoded || !decoded.buffer) {
+    res.status(404).json({ error: 'Certificate file data is not available' });
+    return;
+  }
+
+  const { mime, buffer } = decoded;
+  const ext =
+    mime === 'application/pdf'
+      ? '.pdf'
+      : mime === 'image/png'
+        ? '.png'
+        : mime === 'image/jpeg'
+          ? '.jpg'
+          : '';
+  const safeSlug = String(friendlyCertificateId || 'CERT').replace(/[^\w.-]/g, '_').slice(0, 200);
+  const filename = ext ? `certificate-${safeSlug}${ext}` : `certificate-${safeSlug}`;
+
+  res.setHeader('Content-Type', mime || 'application/octet-stream');
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  res.setHeader('Content-Length', buffer.length);
+  res.send(buffer);
 }
 
 /**
@@ -260,6 +311,11 @@ async function ensureCertificateStorageColumns() {
   try {
     if (!certColumns.includes('completion_date')) {
       await db.run('ALTER TABLE certificates ADD COLUMN completion_date DATE');
+    }
+  } catch (_err) {}
+  try {
+    if (!certColumns.includes('file_data_url')) {
+      await db.run('ALTER TABLE certificates ADD COLUMN file_data_url TEXT');
     }
   } catch (_err) {}
 }
@@ -453,6 +509,7 @@ router.post('/', authenticateToken, requireRole('Admin', 'Staff', 'Instructor', 
     const fileExt = path.extname(req.file.filename).toLowerCase();
     const fileType = fileExt === '.pdf' ? 'pdf' : fileExt === '.png' ? 'png' : 'jpeg';
     const filePath = `/uploads/certificates/${req.file.filename}`;
+    const fileDataUrl = toDataUrlFromUpload(req.file);
 
     const certColumns = await getCertificateColumnNames();
     const fields = ['certificate_id', 'student_id', 'course_id', 'issue_date', 'grade', 'verification_code'];
@@ -475,6 +532,10 @@ router.post('/', authenticateToken, requireRole('Admin', 'Staff', 'Instructor', 
     if (certColumns.includes('completion_date')) {
       fields.push('completion_date');
       values.push(completion_date || null);
+    }
+    if (certColumns.includes('file_data_url') && fileDataUrl) {
+      fields.push('file_data_url');
+      values.push(fileDataUrl);
     }
     if (certColumns.includes('pdf_path')) {
       fields.push('pdf_path');
@@ -565,6 +626,7 @@ router.put('/:id', authenticateToken, requireRole('Admin', 'Staff', 'Instructor'
       const fileExt = path.extname(req.file.filename).toLowerCase();
       const fileType = fileExt === '.pdf' ? 'pdf' : fileExt === '.png' ? 'png' : 'jpeg';
       const filePath = `/uploads/certificates/${req.file.filename}`;
+      const fileDataUrl = toDataUrlFromUpload(req.file);
 
       const certColumns = await getCertificateColumnNames();
       if (certColumns.includes('file_path')) {
@@ -578,6 +640,10 @@ router.put('/:id', authenticateToken, requireRole('Admin', 'Staff', 'Instructor'
       if (certColumns.includes('file_type')) {
         updates.push('file_type = ?');
         params.push(fileType);
+      }
+      if (certColumns.includes('file_data_url') && fileDataUrl) {
+        updates.push('file_data_url = ?');
+        params.push(fileDataUrl);
       }
     }
 
@@ -749,11 +815,34 @@ router.get('/:id/download/:format', authenticateToken, async (req, res) => {
     }
 
     const absDiskPath = resolveCertificateAbsoluteDiskPath(certificate);
-    if (!absDiskPath) {
-      return res.status(404).json({ error: 'Certificate file not found on server' });
+    if (absDiskPath) {
+      // Backfill DB persistence for legacy rows that only had disk paths.
+      if (!certificate.file_data_url) {
+        try {
+          const ext = path.extname(absDiskPath).toLowerCase();
+          const mime =
+            ext === '.pdf'
+              ? 'application/pdf'
+              : ext === '.png'
+                ? 'image/png'
+                : ext === '.jpg' || ext === '.jpeg'
+                  ? 'image/jpeg'
+                  : 'application/octet-stream';
+          const bytes = fs.readFileSync(absDiskPath);
+          const dataUrl = `data:${mime};base64,${bytes.toString('base64')}`;
+          await db.run('UPDATE certificates SET file_data_url = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [dataUrl, certificate.id]);
+        } catch (_backfillErr) {
+          // Non-fatal: download still works from disk.
+        }
+      }
+      return sendCertificateFileResponse(res, absDiskPath, certificate.certificate_id);
     }
 
-    sendCertificateFileResponse(res, absDiskPath, certificate.certificate_id);
+    if (certificate.file_data_url) {
+      return sendCertificateDataUrlResponse(res, certificate.file_data_url, certificate.certificate_id);
+    }
+
+    return res.status(404).json({ error: 'Certificate file not found on server' });
   } catch (error) {
     console.error('Download certificate error:', error);
     res.status(500).json({ error: 'Failed to download certificate' });
@@ -771,7 +860,7 @@ router.get('/public/:id/download/:format', async (req, res) => {
     }
 
     const certificate = await db.get(
-      `SELECT COALESCE(c.file_path, c.pdf_path) as file_path, c.certificate_id, c.file_type,
+      `SELECT COALESCE(c.file_path, c.pdf_path) as file_path, c.file_data_url, c.certificate_id, c.file_type,
               ch.cert_access_enabled, ch.cert_access_start, ch.cert_access_end
        FROM certificates c
        JOIN students s ON s.id = c.student_id
@@ -789,11 +878,15 @@ router.get('/public/:id/download/:format', async (req, res) => {
     }
 
     const absDiskPath = resolveCertificateAbsoluteDiskPath(certificate);
-    if (!absDiskPath) {
-      return res.status(404).json({ error: 'Certificate file not found on server' });
+    if (absDiskPath) {
+      return sendCertificateFileResponse(res, absDiskPath, certificate.certificate_id);
     }
 
-    sendCertificateFileResponse(res, absDiskPath, certificate.certificate_id);
+    if (certificate.file_data_url) {
+      return sendCertificateDataUrlResponse(res, certificate.file_data_url, certificate.certificate_id);
+    }
+
+    return res.status(404).json({ error: 'Certificate file not found on server' });
   } catch (error) {
     console.error('Public download certificate error:', error);
     res.status(500).json({ error: 'Failed to download certificate' });
