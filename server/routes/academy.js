@@ -7,6 +7,7 @@ const { logAction } = require('../utils/audit');
 const { sendBulkNotifications, sendNotificationToUser, sendNotificationToRole } = require('../utils/notifications');
 const { normalizeProfileImage } = require('../utils/normalizeProfileImage');
 const { resolveUploadsDiskPath } = require('../utils/uploadsRoot');
+const { deliverCertificateBinary } = require('../utils/certificateFileDelivery');
 const crypto = require('crypto');
 const path = require('path');
 
@@ -413,36 +414,8 @@ router.get('/students/me/certificates/:id/download', authenticateToken, requireR
       [req.params.id, student.id]
     );
     if (!cert) return res.status(404).json({ error: 'Certificate not found' });
-    const fs = require('fs');
-    const fullPath = cert.file_path ? resolveUploadsDiskPath(cert.file_path) : null;
-    if (fullPath && fs.existsSync(fullPath)) {
-      const ext = (path.extname(fullPath) || '.pdf').toLowerCase();
-      const fileName = `certificate-${cert.certificate_id || cert.id}${ext}`;
-      const contentType = ext === '.pdf' ? 'application/pdf' : ext === '.png' ? 'image/png' : 'image/jpeg';
-      return res.sendFile(fullPath, {
-        headers: {
-          'Content-Type': contentType,
-          'Content-Disposition': `attachment; filename="${fileName}"`
-        }
-      });
-    }
-
-    if (cert.file_data_url && typeof cert.file_data_url === 'string') {
-      const match = cert.file_data_url.match(/^data:([^;]+);base64,(.+)$/i);
-      if (match) {
-        const mime = String(match[1] || 'application/octet-stream').toLowerCase();
-        const ext =
-          mime === 'application/pdf' ? '.pdf' : mime === 'image/png' ? '.png' : mime === 'image/jpeg' ? '.jpg' : '';
-        const fileName = `certificate-${cert.certificate_id || cert.id}${ext}`;
-        const bytes = Buffer.from(match[2], 'base64');
-        res.setHeader('Content-Type', mime);
-        res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
-        res.setHeader('Content-Length', bytes.length);
-        return res.send(bytes);
-      }
-    }
-
-    return res.status(404).json({ error: 'Certificate file not available' });
+    await deliverCertificateBinary(res, db, cert, { notFoundMessage: 'Certificate file not available' });
+    return;
   } catch (e) {
     console.error('Certificate download error:', e);
     res.status(500).json({ error: 'Download failed' });

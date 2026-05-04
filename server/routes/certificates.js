@@ -10,6 +10,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const { normalizeProfileImage } = require('../utils/normalizeProfileImage');
 const { getUploadsRoot, resolveUploadsDiskPath } = require('../utils/uploadsRoot');
+const { toPublicCertificatePath, deliverCertificateBinary } = require('../utils/certificateFileDelivery');
 
 // Configure multer for certificate file uploads
 const storage = multer.diskStorage({
@@ -130,34 +131,6 @@ function isCertificateWindowOpenForCohort(row) {
   return true;
 }
 
-function toPublicCertificatePath(rawPath) {
-  if (!rawPath || typeof rawPath !== 'string') return null;
-  const trimmed = rawPath.trim();
-  if (!trimmed) return null;
-
-  if (trimmed.startsWith('http://') || trimmed.startsWith('https://') || trimmed.startsWith('data:')) {
-    return trimmed;
-  }
-  if (trimmed.startsWith('/uploads/')) return trimmed;
-  if (trimmed.startsWith('uploads/')) return `/${trimmed}`;
-
-  const normalized = path.resolve(trimmed);
-  const uploadsRoot = path.resolve(getUploadsRoot());
-
-  if (normalized.startsWith(uploadsRoot)) {
-    const rel = path.relative(uploadsRoot, normalized).split(path.sep).join('/');
-    return rel ? `/uploads/${rel}` : '/uploads';
-  }
-
-  const marker = '/uploads/';
-  const markerIdx = normalized.split(path.sep).join('/').indexOf(marker);
-  if (markerIdx >= 0) {
-    return normalized.split(path.sep).join('/').slice(markerIdx);
-  }
-
-  return trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
-}
-
 function normalizeCertificateRow(certificate) {
   if (!certificate) return certificate;
   const resolvedFilePath = toPublicCertificatePath(certificate.file_path || certificate.pdf_path || null);
@@ -181,103 +154,6 @@ function toDataUrlFromUpload(file) {
   } catch (_err) {
     return null;
   }
-}
-
-function decodeDataUrl(dataUrl) {
-  if (!dataUrl || typeof dataUrl !== 'string') return null;
-  const trimmed = dataUrl.trim();
-  const match = trimmed.match(/^data:([^;]+);base64,(.+)$/i);
-  if (!match) return null;
-  try {
-    return {
-      mime: String(match[1] || 'application/octet-stream').toLowerCase(),
-      buffer: Buffer.from(match[2], 'base64')
-    };
-  } catch (_err) {
-    return null;
-  }
-}
-
-/** Resolve persisted path (legacy web, absolute disk, pdf_path only, etc.) to an existing file path. */
-function resolveCertificateAbsoluteDiskPath(record) {
-  const raw = record.resolved_file_path || record.file_path || record.pdf_path || null;
-  if (!raw) return null;
-
-  if (/^https?:\/\//i.test(String(raw).trim())) {
-    return null;
-  }
-
-  const webish = toPublicCertificatePath(raw);
-  const candidates = [];
-
-  if (webish && !/^https?:\/\//i.test(webish.trim())) {
-    candidates.push(resolveUploadsDiskPath(webish));
-  }
-  candidates.push(resolveUploadsDiskPath(raw));
-
-  const seen = new Set();
-  for (const candidate of candidates) {
-    const key = candidate || '';
-    if (!candidate || seen.has(key)) continue;
-    seen.add(key);
-    if (fs.existsSync(candidate)) return candidate;
-  }
-  return null;
-}
-
-function sendCertificateDataUrlResponse(res, dataUrl, friendlyCertificateId) {
-  const decoded = decodeDataUrl(dataUrl);
-  if (!decoded || !decoded.buffer) {
-    res.status(404).json({ error: 'Certificate file data is not available' });
-    return;
-  }
-
-  const { mime, buffer } = decoded;
-  const ext =
-    mime === 'application/pdf'
-      ? '.pdf'
-      : mime === 'image/png'
-        ? '.png'
-        : mime === 'image/jpeg'
-          ? '.jpg'
-          : '';
-  const safeSlug = String(friendlyCertificateId || 'CERT').replace(/[^\w.-]/g, '_').slice(0, 200);
-  const filename = ext ? `certificate-${safeSlug}${ext}` : `certificate-${safeSlug}`;
-
-  res.setHeader('Content-Type', mime || 'application/octet-stream');
-  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-  res.setHeader('Content-Length', buffer.length);
-  res.send(buffer);
-}
-
-/**
- * Serve the certificate file exactly as stored: correct MIME and filename extension (no bogus PDF headers).
- */
-function sendCertificateFileResponse(res, absDiskPath, friendlyCertificateId) {
-  if (!absDiskPath || !fs.existsSync(absDiskPath)) {
-    res.status(404).json({ error: 'Certificate file not found on server' });
-    return;
-  }
-
-  const extLower = path.extname(absDiskPath).toLowerCase();
-  const mime =
-    extLower === '.pdf'
-      ? 'application/pdf'
-      : extLower === '.png'
-        ? 'image/png'
-        : extLower === '.jpg' || extLower === '.jpeg'
-          ? 'image/jpeg'
-          : 'application/octet-stream';
-
-  const safeSlug = String(friendlyCertificateId || 'CERT').replace(/[^\w.-]/g, '_').slice(0, 200);
-  const filename = extLower ? `certificate-${safeSlug}${extLower}` : `certificate-${safeSlug}`;
-
-  const absolute = path.resolve(absDiskPath);
-  res.setHeader('Content-Type', mime);
-  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-
-  /* format param is informational only — always send truthful bytes+MIME until server-side conversion exists */
-  res.sendFile(absolute);
 }
 
 async function getCertificateColumnNames() {
@@ -562,6 +438,10 @@ router.post('/', authenticateToken, requireRole('Admin', 'Staff', 'Instructor', 
 
     await logAction(req.user.id, 'create_certificate', 'certificates', result.lastID, { certificateId }, req);
 
+    if (certColumns.includes('file_data_url') && fileDataUrl && req.file?.path) {
+      safeUnlink(req.file.path);
+    }
+
     res.status(201).json({
       message: 'Certificate created successfully',
       certificate: {
@@ -601,6 +481,7 @@ router.put('/:id', authenticateToken, requireRole('Admin', 'Staff', 'Instructor'
 
     const updates = [];
     const params = [];
+    let pendingNewCertFileUnlink = null;
 
     if (grade !== undefined) {
       updates.push('grade = ?');
@@ -644,6 +525,7 @@ router.put('/:id', authenticateToken, requireRole('Admin', 'Staff', 'Instructor'
       if (certColumns.includes('file_data_url') && fileDataUrl) {
         updates.push('file_data_url = ?');
         params.push(fileDataUrl);
+        pendingNewCertFileUnlink = req.file.path;
       }
     }
 
@@ -653,6 +535,10 @@ router.put('/:id', authenticateToken, requireRole('Admin', 'Staff', 'Instructor'
         `UPDATE certificates SET ${updates.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
         params
       );
+    }
+
+    if (pendingNewCertFileUnlink) {
+      safeUnlink(pendingNewCertFileUnlink);
     }
 
     await logAction(req.user.id, 'update_certificate', 'certificates', certificateId, req.body, req);
@@ -814,35 +700,8 @@ router.get('/:id/download/:format', authenticateToken, async (req, res) => {
       }
     }
 
-    const absDiskPath = resolveCertificateAbsoluteDiskPath(certificate);
-    if (absDiskPath) {
-      // Backfill DB persistence for legacy rows that only had disk paths.
-      if (!certificate.file_data_url) {
-        try {
-          const ext = path.extname(absDiskPath).toLowerCase();
-          const mime =
-            ext === '.pdf'
-              ? 'application/pdf'
-              : ext === '.png'
-                ? 'image/png'
-                : ext === '.jpg' || ext === '.jpeg'
-                  ? 'image/jpeg'
-                  : 'application/octet-stream';
-          const bytes = fs.readFileSync(absDiskPath);
-          const dataUrl = `data:${mime};base64,${bytes.toString('base64')}`;
-          await db.run('UPDATE certificates SET file_data_url = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [dataUrl, certificate.id]);
-        } catch (_backfillErr) {
-          // Non-fatal: download still works from disk.
-        }
-      }
-      return sendCertificateFileResponse(res, absDiskPath, certificate.certificate_id);
-    }
-
-    if (certificate.file_data_url) {
-      return sendCertificateDataUrlResponse(res, certificate.file_data_url, certificate.certificate_id);
-    }
-
-    return res.status(404).json({ error: 'Certificate file not found on server' });
+    await deliverCertificateBinary(res, db, certificate, {});
+    return;
   } catch (error) {
     console.error('Download certificate error:', error);
     res.status(500).json({ error: 'Failed to download certificate' });
@@ -860,7 +719,7 @@ router.get('/public/:id/download/:format', async (req, res) => {
     }
 
     const certificate = await db.get(
-      `SELECT COALESCE(c.file_path, c.pdf_path) as file_path, c.file_data_url, c.certificate_id, c.file_type,
+      `SELECT c.id, COALESCE(c.file_path, c.pdf_path) as file_path, c.file_data_url, c.certificate_id, c.file_type,
               ch.cert_access_enabled, ch.cert_access_start, ch.cert_access_end
        FROM certificates c
        JOIN students s ON s.id = c.student_id
@@ -877,16 +736,8 @@ router.get('/public/:id/download/:format', async (req, res) => {
       return res.status(403).json({ error: 'Certificate access window is closed for this cohort' });
     }
 
-    const absDiskPath = resolveCertificateAbsoluteDiskPath(certificate);
-    if (absDiskPath) {
-      return sendCertificateFileResponse(res, absDiskPath, certificate.certificate_id);
-    }
-
-    if (certificate.file_data_url) {
-      return sendCertificateDataUrlResponse(res, certificate.file_data_url, certificate.certificate_id);
-    }
-
-    return res.status(404).json({ error: 'Certificate file not found on server' });
+    await deliverCertificateBinary(res, db, certificate, {});
+    return;
   } catch (error) {
     console.error('Public download certificate error:', error);
     res.status(500).json({ error: 'Failed to download certificate' });
