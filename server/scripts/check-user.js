@@ -4,7 +4,7 @@ const { comparePassword } = require('../utils/auth');
 async function checkUser() {
   try {
     await db.connect();
-    const email = process.argv[2] || 'jsieh@prinstinegroup.org';
+    const email = process.argv[2] || 'jsieh@prinstinegroup.org' || 'marjorie@prinstinegroup.org';
     
     console.log(`=== Checking User: ${email} ===\n`);
     

@@ -22,7 +22,7 @@ export const isAcademyStaff = (user) => {
   
   // Explicit email allowlist: Academy coordinators and Academy Head
   const userEmail = (user.email || '').toLowerCase().trim();
-  const academyCoordinatorEmails = ['samsonbryant89@gmail.com', 'cvulue@prinstinegroup.org'];
+  const academyCoordinatorEmails = ['samsonbryant89@gmail.com', 'cvulue@prinstinegroup.org', 'marjorie@prinstinegroup.org'];
   const academyHeadEmails = ['fwallace@prinstinegroup.org'];
   if (academyCoordinatorEmails.includes(userEmail) || academyHeadEmails.includes(userEmail)) {
     return true;
