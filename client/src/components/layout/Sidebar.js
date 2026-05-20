@@ -5,6 +5,7 @@ import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import api from '../../config/api';
 import { getSocket } from '../../config/socket';
+import { checkStudentPaymentAccess } from '../../utils/studentPaymentAccess';
 import './Sidebar.css';
 
 const Sidebar = () => {
@@ -133,7 +134,6 @@ const Sidebar = () => {
   /* =========================
      STUDENT PAYMENT ACCESS
   ========================= */
-  const STUDENT_PAYMENT_EMAILS = ['sean@prinstinegroup.org'];
   const checkIctAuditAccess = useCallback(async () => {
     if (!user) {
       setHasIctAuditAccess(false);
@@ -155,27 +155,15 @@ const Sidebar = () => {
     }
   }, [user]);
 
-  const checkStudentPaymentAccess = useCallback(async () => {
+  const refreshStudentPaymentAccess = useCallback(async () => {
     if (!user) return setHasStudentPaymentAccess(false);
-    const email = ((user.email ?? '') + '').toLowerCase().trim();
-    const role = normalizeRole(user.role);
-    if (role === 'admin' || STUDENT_PAYMENT_EMAILS.includes(email)) {
-      return setHasStudentPaymentAccess(true);
-    }
     try {
-      if (role === 'departmenthead') {
-        const res = await api.get('/departments');
-        const dept = (res.data.departments || []).find(
-          (d) =>
-            (d.manager_id === user.id || (d.head_email ?? '').toLowerCase().trim() === email) &&
-            (d.name ?? '').toLowerCase().match(/finance|academy|elearning/)
-        );
-        return setHasStudentPaymentAccess(!!dept);
-      }
+      const ok = await checkStudentPaymentAccess(user);
+      setHasStudentPaymentAccess(!!ok);
     } catch (err) {
       console.error('Student payment access check failed:', err);
+      setHasStudentPaymentAccess(false);
     }
-    setHasStudentPaymentAccess(false);
   }, [user]);
 
   /* =========================
@@ -210,7 +198,7 @@ const Sidebar = () => {
     checkFinanceAccess();
     checkAcademyAccess();
     checkStaffManagementAccess();
-    checkStudentPaymentAccess();
+    refreshStudentPaymentAccess();
     checkIctAuditAccess();
 
     if (normalizeRole(user.role) === 'departmenthead') {
@@ -228,7 +216,7 @@ const Sidebar = () => {
     socket.on('notification', handler);
 
     return () => socket.off('notification', handler);
-  }, [user, fetchUnreadCount, checkFinanceAccess, checkAcademyAccess, checkStaffManagementAccess, checkStudentPaymentAccess, checkIctAuditAccess, fetchUnreadFromAdmin]);
+  }, [user, fetchUnreadCount, checkFinanceAccess, checkAcademyAccess, checkStaffManagementAccess, refreshStudentPaymentAccess, checkIctAuditAccess, fetchUnreadFromAdmin]);
 
   /* =========================
      MENU CONFIG

@@ -1,9 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
-import api from '../config/api';
-
-const STUDENT_PAYMENT_EMAILS = ['sean@prinstinegroup.org', 'cvulue@prinstinegroup.org'];
+import { checkStudentPaymentAccess } from '../utils/studentPaymentAccess';
 
 const StudentPaymentRoute = ({ children }) => {
   const { user, loading } = useAuth();
@@ -18,37 +16,11 @@ const StudentPaymentRoute = ({ children }) => {
     if (!user || loading) return;
 
     const check = async () => {
-      const email = ((user.email ?? '') + '').toLowerCase().trim();
-      const role = (user.role ?? '').toString();
-
-      if (role === 'Admin') {
-        setHasAccess(true);
-        setChecking(false);
-        return;
+      try {
+        setHasAccess(await checkStudentPaymentAccess(user));
+      } catch {
+        setHasAccess(false);
       }
-      if (STUDENT_PAYMENT_EMAILS.includes(email)) {
-        setHasAccess(true);
-        setChecking(false);
-        return;
-      }
-      if (role === 'DepartmentHead') {
-        try {
-          const res = await api.get('/departments');
-          const dept = (res.data.departments || []).find(
-            (d) =>
-              (d.manager_id === user.id ||
-                ((d.head_email || '').toLowerCase().trim() === email)) &&
-              (d.name || '').toLowerCase().match(/finance|academy|elearning/)
-          );
-          setHasAccess(!!dept);
-        } catch (e) {
-          setHasAccess(false);
-        }
-        setChecking(false);
-        return;
-      }
-
-      setHasAccess(false);
       setChecking(false);
     };
 
