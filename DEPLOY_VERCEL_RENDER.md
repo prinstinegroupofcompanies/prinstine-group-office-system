@@ -67,18 +67,50 @@ This repo includes `client/vercel.json` with SPA rewrite to prevent 404 on deep 
 
 ### Vercel setup
 
-1. Import the repository in Vercel.
-2. Configure project:
-   - **Root Directory**: `client`
-   - **Framework Preset**: Create React App
-   - **Build Command**: `npm run build`
-   - **Output Directory**: `build`
+1. Import the repository in Vercel (GitHub: `prinstine-group-system`).
+2. Configure project — use **one** of these options:
+
+**Option A (recommended): Root Directory = `client`**
+
+| Setting | Value |
+|---------|--------|
+| Root Directory | `client` |
+| Framework Preset | Create React App |
+| Build Command | `npm run build` |
+| Output Directory | `build` |
+
+**Option B: Root Directory = empty (repo root)**
+
+Leave Root Directory blank. The repo root `vercel.json` builds `client/` and publishes `client/build`.
+
 3. Add environment variables (Production):
-   - `REACT_APP_API_URL=https://prinstine-group-system.onrender.com`
-   - Optional: `REACT_APP_SOCKET_URL=https://prinstine-group-system.onrender.com`
-4. Deploy (or **Redeploy** after each `git push` to `main` if auto-deploy is enabled).
+   - `REACT_APP_API_URL` = `https://prinstine-group-system.onrender.com`
+   - Optional: `REACT_APP_SOCKET_URL` = `https://prinstine-group-system.onrender.com`
+4. Deploy. Wait until status is **Ready** (not Error or Canceled).
+5. Add custom domain `prinstinemanagementsystem.com` under **Settings → Domains** and follow DNS instructions until status is **Valid**.
 
 > **Important:** Git pushes update Render (API) automatically, but **Vercel must rebuild** to show new UI. After pushing code, open Vercel → Deployments → Redeploy if auto-deploy did not run.
+
+### Fix Vercel `404: NOT_FOUND`
+
+This error almost always means Vercel is not serving your React `build` folder.
+
+1. **Check the latest deployment** (Vercel → Deployments):
+   - Must be **Ready**, not Failed.
+   - Open the deployment URL (`*.vercel.app`) — if that also shows 404, the build/output path is wrong.
+
+2. **Fix Output Directory** (most common):
+   - If Root Directory = `client` → Output Directory must be `build` (not `client/build`).
+   - If Root Directory = empty → Output Directory must be `client/build`, or leave blank and use root `vercel.json`.
+
+3. **Wrong Root Directory**:
+   - Do not set Root Directory to `server` or `prinstine-management-system` unless that folder contains `package.json` with `react-scripts`.
+
+4. **Custom domain**:
+   - **Settings → Domains** → `prinstinemanagementsystem.com` must show **Valid**.
+   - If Invalid, fix DNS at your registrar (Vercel shows required A/CNAME records).
+
+5. **Redeploy** after fixing settings: Deployments → ⋮ → Redeploy.
 
 ## 4) Connect backend CORS to frontend
 
