@@ -83,10 +83,24 @@ This repo includes `client/vercel.json` with SPA rewrite to prevent 404 on deep 
 
 Leave Root Directory blank. The repo root `vercel.json` builds `client/` and publishes `client/build`.
 
-3. Add environment variables (Production):
+3. Add environment variables (Production) — **required for login/API**:
    - `REACT_APP_API_URL` = `https://prinstine-group-system.onrender.com`
    - Optional: `REACT_APP_SOCKET_URL` = `https://prinstine-group-system.onrender.com`
+
+   **Important:** Create React App reads env vars at **build time**. After adding or changing them, you must **Redeploy** (new build). Saving env alone is not enough.
+
+   The repo also includes `client/.env.production` with the same URL as a fallback if Vercel env is missing.
+
 4. Deploy. Wait until status is **Ready** (not Error or Canceled).
+
+### Fix login 405 / `REACT_APP_API_URL is not set`
+
+If the browser console shows an empty API URL and `POST /auth/login` returns **405**, the frontend is calling Vercel instead of Render.
+
+1. Set `REACT_APP_API_URL=https://prinstine-group-system.onrender.com` in Vercel → Environment Variables (Production).
+2. **Redeploy** the project (Deployments → Redeploy).
+3. Hard refresh https://prinstinemanagementsystem.com and try login again.
+4. In DevTools → Network, login should go to `https://prinstine-group-system.onrender.com/api/auth/login`, not `prinstinemanagementsystem.com/auth/login`.
 5. Add custom domain `prinstinemanagementsystem.com` under **Settings → Domains** and follow DNS instructions until status is **Valid**.
 
 > **Important:** Git pushes update Render (API) automatically, but **Vercel must rebuild** to show new UI. After pushing code, open Vercel → Deployments → Redeploy if auto-deploy did not run.

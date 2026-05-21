@@ -11,28 +11,39 @@ function trimTrailingSlashes(s) {
   return (s || '').replace(/\/+$/, '');
 }
 
+/** Default Render backend when REACT_APP_API_URL is missing at build time (Vercel must rebuild after env changes). */
+const PRODUCTION_API_FALLBACK = 'https://prinstine-group-system.onrender.com';
+
+function normalizeApiBase(raw) {
+  let base = trimTrailingSlashes(raw);
+  if (!/\/api$/i.test(base)) {
+    base = `${base}/api`;
+  }
+  return base;
+}
+
 /**
  * Get the API base URL from environment variable
- * In production, REACT_APP_API_URL must be set (Render: full https URL to backend, with or without /api)
+ * Set REACT_APP_API_URL in Vercel (Production) to your Render backend URL, then redeploy.
  * @returns {string} API base URL
  */
 export const getApiBaseUrl = () => {
-  const raw = (process.env.REACT_APP_API_URL || '').trim();
+  let raw = (process.env.REACT_APP_API_URL || '').trim();
 
   if (!raw && process.env.NODE_ENV === 'production') {
-    console.error('REACT_APP_API_URL is not set in production! Please configure it.');
-    return '';
+    console.warn(
+      'REACT_APP_API_URL is not set; using default backend:',
+      PRODUCTION_API_FALLBACK,
+      '— set REACT_APP_API_URL in Vercel and redeploy to override.'
+    );
+    raw = PRODUCTION_API_FALLBACK;
   }
 
   if (!raw) {
     return 'http://localhost:3006/api';
   }
 
-  let base = trimTrailingSlashes(raw);
-  if (!/\/api$/i.test(base)) {
-    base = `${base}/api`;
-  }
-  return base;
+  return normalizeApiBase(raw);
 };
 
 /**
