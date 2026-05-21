@@ -218,9 +218,6 @@ const StudentPaymentManagement = () => {
   useEffect(() => {
     if (!selectedStudent?.id) return;
     refreshStudentDetail(selectedStudent.id);
-    return () => {
-      if (detailAbortRef.current) detailAbortRef.current.abort();
-    };
   }, [selectedStudent?.id, refreshStudentDetail]);
 
   useEffect(() => {
