@@ -34,8 +34,8 @@ const StudentPaymentManagement = () => {
   const [sortDir, setSortDir] = useState('asc');
   const [studentTotal, setStudentTotal] = useState(0);
   const searchDebounceRef = useRef(null);
-  const studentsAbortRef = useRef(null);
-  const detailAbortRef = useRef(null);
+  const studentsRequestIdRef = useRef(0);
+  const detailRequestIdRef = useRef(0);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [showPaymentForm, setShowPaymentForm] = useState(false);
@@ -112,11 +112,7 @@ const StudentPaymentManagement = () => {
 
   const fetchStudents = useCallback(async (opts = {}) => {
     const silent = opts.silent === true;
-    if (studentsAbortRef.current) {
-      studentsAbortRef.current.abort();
-    }
-    const controller = new AbortController();
-    studentsAbortRef.current = controller;
+    const requestId = ++studentsRequestIdRef.current;
 
     if (!silent) setListLoading(true);
     try {
@@ -127,49 +123,69 @@ const StudentPaymentManagement = () => {
       if (sortBy) params.sort = sortBy;
       if (sortDir) params.sort_dir = sortDir;
 
-      const response = await api.get('/student-payments/students', {
-        params,
-        signal: controller.signal
-      });
+      const response = await api.get('/student-payments/students', { params });
+      if (requestId !== studentsRequestIdRef.current) return;
+
       const list = response.data.students || [];
       setStudents(list);
       setStudentTotal(response.data.total ?? list.length);
     } catch (err) {
-      if (err.name === 'CanceledError' || err.code === 'ERR_CANCELED') return;
+      if (requestId !== studentsRequestIdRef.current) return;
       console.error('Error fetching students:', err);
       setError('Failed to fetch students: ' + (err.response?.data?.error || err.message));
     } finally {
-      if (!controller.signal.aborted) setListLoading(false);
+      if (requestId === studentsRequestIdRef.current) setListLoading(false);
     }
   }, [searchQuery, cohortFilter, courseFilter, sortBy, sortDir]);
 
   const refreshStudentDetail = useCallback(async (studentId, { silent = false } = {}) => {
     if (!studentId) return;
-    if (detailAbortRef.current) detailAbortRef.current.abort();
-    const controller = new AbortController();
-    detailAbortRef.current = controller;
+    const requestId = ++detailRequestIdRef.current;
 
     if (!silent) setDetailLoading(true);
     try {
-      const res = await api.get(`/student-payments/student/${studentId}/detail`, {
-        signal: controller.signal
-      });
-      setPayments(res.data.payments || []);
-      setEnrolledCourses(res.data.courses || []);
-      setTransactions(res.data.transactions || []);
-      if (res.data.summary) {
+      let paymentsData = [];
+      let coursesData = [];
+      let transactionsData = [];
+      let summary = null;
+
+      try {
+        const res = await api.get(`/student-payments/student/${studentId}/detail`);
+        if (requestId !== detailRequestIdRef.current) return;
+        paymentsData = res.data.payments || [];
+        coursesData = res.data.courses || [];
+        transactionsData = res.data.transactions || [];
+        summary = res.data.summary || null;
+      } catch (detailErr) {
+        if (requestId !== detailRequestIdRef.current) return;
+        const [payRes, coursesRes, txRes] = await Promise.all([
+          api.get(`/student-payments/student/${studentId}`),
+          api.get(`/student-payments/student/${studentId}/enrolled-courses`).catch(() => ({ data: { courses: [] } })),
+          api.get(`/student-payments/student/${studentId}/transactions`).catch(() => ({ data: { transactions: [] } }))
+        ]);
+        if (requestId !== detailRequestIdRef.current) return;
+        paymentsData = payRes.data.payments || [];
+        coursesData = coursesRes.data?.courses || [];
+        transactionsData = txRes.data?.transactions || [];
+        summary = payRes.data.summary || null;
+      }
+
+      setPayments(paymentsData);
+      setEnrolledCourses(coursesData);
+      setTransactions(transactionsData);
+      if (summary) {
         applyPaymentSummaryToList(studentId, {
-          totalFees: res.data.summary.totalFees,
-          totalPaid: res.data.summary.totalPaid,
-          totalBalance: res.data.summary.totalBalance,
-          paymentCount: (res.data.payments || []).length
+          totalFees: summary.totalFees,
+          totalPaid: summary.totalPaid,
+          totalBalance: summary.totalBalance,
+          paymentCount: paymentsData.length
         });
       }
     } catch (err) {
-      if (err.name === 'CanceledError' || err.code === 'ERR_CANCELED') return;
+      if (requestId !== detailRequestIdRef.current) return;
       setError(err.response?.data?.error || 'Failed to load student details');
     } finally {
-      if (!controller.signal.aborted) setDetailLoading(false);
+      if (requestId === detailRequestIdRef.current) setDetailLoading(false);
     }
   }, [applyPaymentSummaryToList]);
 
@@ -830,9 +846,10 @@ const StudentPaymentManagement = () => {
                         <small>{student.student_id}</small>
                       </div>
                       <p className="mb-1 text-muted small">{student.email}</p>
-                      {student.cohort_name && (
+                      {(student.cohort_name || student.cohort_code) && (
                         <small className="d-block text-muted mb-1">
-                          <i className="bi bi-people me-1" />{student.cohort_name}
+                          <i className="bi bi-people me-1" />
+                          {student.cohort_name || student.cohort_code}
                         </small>
                       )}
                       <div className="d-flex justify-content-between">
