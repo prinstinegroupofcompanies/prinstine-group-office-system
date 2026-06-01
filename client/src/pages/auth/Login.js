@@ -35,13 +35,10 @@ const Login = () => {
     setError('');
     setLoading(true);
 
-    // Normalize email before sending
-    const normalizedEmail = email.trim().toLowerCase();
-    
-    console.log('Login form submitted for:', normalizedEmail);
-    
+    const loginId = email.trim().toLowerCase();
+
     try {
-      const result = await login(normalizedEmail, password);
+      const result = await login(loginId, password);
       
       console.log('Login result:', result);
       
@@ -54,7 +51,7 @@ const Login = () => {
             if (role === 'departmenthead') navigate('/department-dashboard');
             else if (role === 'staff') navigate('/staff-dashboard');
             else if (role === 'student') navigate('/student');
-            else if (role === 'instructor') navigate('/academy');
+            else if (role === 'instructor') navigate('/instructor-dashboard');
             else navigate('/dashboard');
           } catch (parseError) {
             console.error('Error parsing user data:', parseError);
@@ -106,16 +103,17 @@ const Login = () => {
         <form onSubmit={handleSubmit}>
           <div className="mb-3">
             <label htmlFor="email" className="form-label">
-              <i className="bi bi-envelope me-2"></i>Email Address
+              <i className="bi bi-person me-2"></i>Email or Username
             </label>
             <input
-              type="email"
+              type="text"
               className="form-control"
               id="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
               autoFocus
+              autoComplete="username"
             />
           </div>
 

@@ -42,7 +42,7 @@ const PrivateRoute = ({ children, requiredRole = null, requiredRoles = null }) =
       return <Navigate to="/student" replace />;
     }
     if (user.role === 'Instructor') {
-      return <Navigate to="/academy" replace />;
+      return <Navigate to="/instructor-dashboard" replace />;
     }
     return <Navigate to="/dashboard" replace />;
   }

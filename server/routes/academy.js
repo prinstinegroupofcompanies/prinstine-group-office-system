@@ -8,18 +8,14 @@ const { sendBulkNotifications, sendNotificationToUser, sendNotificationToRole } 
 const { normalizeProfileImage } = require('../utils/normalizeProfileImage');
 const { resolveUploadsDiskPath } = require('../utils/uploadsRoot');
 const { deliverCertificateBinary } = require('../utils/certificateFileDelivery');
+const {
+  generateInstructorId,
+  resolveStudentId,
+  isValidStudentIdFormat,
+  normalizeStudentId
+} = require('../utils/academyIds');
 const crypto = require('crypto');
 const path = require('path');
-
-// Generate unique student ID
-function generateStudentId() {
-  return 'STU-' + Date.now().toString().slice(-8) + '-' + crypto.randomBytes(2).toString('hex').toUpperCase();
-}
-
-// Generate unique instructor ID
-function generateInstructorId() {
-  return 'INS-' + Date.now().toString().slice(-8) + '-' + crypto.randomBytes(2).toString('hex').toUpperCase();
-}
 
 // Generate unique certificate ID
 function generateCertificateId() {
@@ -504,6 +500,20 @@ router.get('/students', authenticateToken, async (req, res) => {
   }
 });
 
+// Preview student ID format (must be before /students/:id)
+router.get('/students/id-format', authenticateToken, requireRole('Admin', 'Instructor', 'DepartmentHead', 'Staff'), async (req, res) => {
+  try {
+    const { generateStudentId } = require('../utils/academyIds');
+    res.json({
+      format: 'STU-XXXXXXXX-XXXX',
+      example: generateStudentId(),
+      pattern: '^STU-\\d{8}-[A-F0-9]{4}$'
+    });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to generate student ID preview' });
+  }
+});
+
 // Get single student
 router.get('/students/:id', authenticateToken, async (req, res) => {
   try {
@@ -562,7 +572,10 @@ router.post('/students', authenticateToken, requireRole('Admin', 'Instructor', '
       return res.status(400).json({ errors: errors.array() });
     }
 
-    const { email, name, username, phone, enrollment_date, courses_enrolled, password, status, profile_image, cohort_id, period } = req.body;
+    const {
+      email, name, username, phone, enrollment_date, courses_enrolled, password, status,
+      profile_image, cohort_id, period, student_id_mode, student_id: manualStudentId
+    } = req.body;
 
     const normProfileImage = normalizeProfileImage(profile_image) ?? null;
     const normEmail = (email || '').toString().toLowerCase().trim();
@@ -690,7 +703,18 @@ router.post('/students', authenticateToken, requireRole('Admin', 'Instructor', '
       }
     }
 
-    const studentId = generateStudentId();
+    const idMode = student_id_mode === 'manual' ? 'manual' : 'auto';
+    let studentId;
+    try {
+      studentId = await resolveStudentId({
+        db,
+        mode: idMode,
+        manualId: manualStudentId
+      });
+    } catch (idErr) {
+      return res.status(idErr.statusCode || 400).json({ error: idErr.message });
+    }
+
     let result;
     try {
       result = await db.run(
@@ -936,6 +960,22 @@ router.put('/students/:id', authenticateToken, requireRole('Admin', 'Instructor'
       studentUpdates.push('period = ?');
       studentParams.push(updates.period || null);
     }
+    if (updates.student_id !== undefined && updates.student_id_mode === 'manual') {
+      const manualId = normalizeStudentId(updates.student_id);
+      if (!isValidStudentIdFormat(manualId)) {
+        return res.status(400).json({
+          error: 'Student ID must match format STU-XXXXXXXX-XXXX (e.g. STU-12345678-AB12).'
+        });
+      }
+      try {
+        const { assertStudentIdAvailable } = require('../utils/academyIds');
+        await assertStudentIdAvailable(db, manualId, parseInt(studentId, 10));
+      } catch (idErr) {
+        return res.status(idErr.statusCode || 400).json({ error: idErr.message });
+      }
+      studentUpdates.push('student_id = ?');
+      studentParams.push(manualId);
+    }
     if (updates.courses_enrolled !== undefined) {
       studentUpdates.push('courses_enrolled = ?');
       studentParams.push(JSON.stringify(updates.courses_enrolled));
@@ -1096,12 +1136,27 @@ router.post('/instructors', authenticateToken, requireRole('Admin', 'DepartmentH
   body('name').trim().notEmpty()
 ], async (req, res) => {
   try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+
+    const academyStaff = await isAcademyStaff(req.user);
+    if (!academyStaff && req.user.role !== 'Admin') {
+      return res.status(403).json({ error: 'Only Academy staff and Admins can create instructors' });
+    }
+
     const { email, name, username, phone, specialization, courses_assigned, password, profile_image } = req.body;
     const normalizedProfileImage = normalizeProfileImage(profile_image) ?? null;
+    const normEmail = (email || '').toString().toLowerCase().trim();
+    const usernameToStore = (username || '').toString().trim() || normEmail.split('@')[0];
 
-    const existingUser = await db.get('SELECT id FROM users WHERE email = ?', [email]);
+    const existingUser = await db.get(
+      'SELECT id FROM users WHERE LOWER(TRIM(email)) = ? OR LOWER(TRIM(username)) = ?',
+      [normEmail, usernameToStore.toLowerCase()]
+    );
     if (existingUser) {
-      return res.status(400).json({ error: 'User with this email already exists' });
+      return res.status(400).json({ error: 'A user with this email or username already exists' });
     }
 
     const { hashPassword } = require('../utils/auth');
@@ -1110,21 +1165,11 @@ router.post('/instructors', authenticateToken, requireRole('Admin', 'DepartmentH
     const userResult = await db.run(
       `INSERT INTO users (email, username, password_hash, role, name, phone, profile_image, is_active, email_verified)
        VALUES (?, ?, ?, ?, ?, ?, ?, 1, 1)`,
-      [email, username || email.split('@')[0], passwordHash, 'Instructor', name, phone || null, normalizedProfileImage]
+      [normEmail, usernameToStore, passwordHash, 'Instructor', name, phone || null, normalizedProfileImage]
     );
 
     const instructorId = generateInstructorId();
 
-    // Check if user is Academy staff
-    const academyStaff = await isAcademyStaff(req.user);
-    
-    // Only Admin and Academy staff can create instructors
-    if (!academyStaff && req.user.role !== 'Admin') {
-      return res.status(403).json({ error: 'Only Academy staff and Admins can create instructors' });
-    }
-
-    // If created by Academy staff (not admin), require admin approval
-    // 0 = Pending, 1 = Approved, 2 = Rejected
     const approved = req.user.role === 'Admin' ? 1 : 0;
 
     const result = await db.run(

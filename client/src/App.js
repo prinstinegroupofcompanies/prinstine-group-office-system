@@ -55,6 +55,7 @@ import PettyCash from './pages/finance/PettyCash';
 import Appraisals from './pages/appraisals/Appraisals';
 import StudentPaymentManagement from './pages/departments/StudentPaymentManagement';
 import StudentPortal from './pages/academy/StudentPortal';
+import InstructorDashboard from './pages/academy/InstructorDashboard';
 import './pages/academy/StudentPortal.css';
 import StudentCertificates from './pages/academy/StudentCertificates';
 import StudentCourses from './pages/academy/StudentCourses';
@@ -124,6 +125,7 @@ function App() {
                           <Route path="/requisitions" element={<PrivateRoute><RequisitionHistory /></PrivateRoute>} />
                           <Route path="/targets" element={<PrivateRoute><Targets /></PrivateRoute>} />
                           <Route path="/profile" element={<Profile />} />
+                          <Route path="/instructor-dashboard" element={<PrivateRoute requiredRole="Instructor"><InstructorDashboard /></PrivateRoute>} />
                           <Route path="/student" element={<PrivateRoute requiredRole="Student"><StudentPortal /></PrivateRoute>} />
                           <Route path="/student/courses" element={<PrivateRoute requiredRole="Student"><StudentCourses /></PrivateRoute>} />
                           <Route path="/student/grades" element={<PrivateRoute requiredRole="Student"><StudentGrades /></PrivateRoute>} />

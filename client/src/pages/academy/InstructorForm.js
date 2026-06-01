@@ -93,8 +93,10 @@ const InstructorForm = ({ instructor, courses, onClose }) => {
         profile_image: formData.profile_image
       };
 
-      if (!instructor && formData.password) {
-        payload.password = formData.password;
+      if (!instructor) {
+        payload.password = formData.password && String(formData.password).trim()
+          ? formData.password
+          : 'Instructor@123';
       }
 
       if (instructor) {
@@ -158,8 +160,19 @@ const InstructorForm = ({ instructor, courses, onClose }) => {
 
               <div className="row">
                 <div className="col-md-6 mb-3">
-                  <label className="form-label">Username</label>
-                  <input type="text" className="form-control" name="username" value={formData.username} onChange={handleChange} />
+                  <label className="form-label">Username {!instructor && '*'}</label>
+                  <input
+                    type="text"
+                    className="form-control"
+                    name="username"
+                    value={formData.username}
+                    onChange={handleChange}
+                    required={!instructor}
+                    placeholder={!instructor ? 'Used to sign in' : ''}
+                  />
+                  {!instructor && (
+                    <small className="text-muted">Instructors sign in with this username or their email.</small>
+                  )}
                 </div>
                 <div className="col-md-6 mb-3">
                   <label className="form-label">Phone</label>

@@ -1,0 +1,12 @@
+.instructor-dashboard {
+  min-height: calc(100vh - 120px);
+}
+
+.instructor-dashboard__hero {
+  max-width: 640px;
+  margin: 2rem auto 0;
+}
+
+.instructor-dashboard__icon {
+  font-size: 3.5rem;
+}

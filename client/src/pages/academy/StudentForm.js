@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import api from '../../config/api';
 import { normalizeUrl } from '../../utils/apiUrl';
+import { STUDENT_ID_FORMAT_HINT, isValidStudentIdFormat, normalizeStudentIdInput } from '../../utils/studentIdFormat';
 
 const StudentForm = ({ student, onClose }) => {
   const [formData, setFormData] = useState({
@@ -20,9 +21,12 @@ const StudentForm = ({ student, onClose }) => {
     gender: '',
     marital_status: '',
     national_id: '',
-    password: ''
+    password: '',
+    student_id_mode: 'auto',
+    student_id: ''
   });
 
+  const [idPreview, setIdPreview] = useState('');
   const [courses, setCourses] = useState([]);
   const [cohorts, setCohorts] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -36,6 +40,11 @@ const StudentForm = ({ student, onClose }) => {
   useEffect(() => {
     fetchCourses();
     fetchCohorts();
+    if (!student) {
+      api.get('/academy/students/id-format')
+        .then((res) => setIdPreview(res.data?.example || ''))
+        .catch(() => setIdPreview(''));
+    }
 
     if (student) {
       setFormData({
@@ -108,6 +117,10 @@ const StudentForm = ({ student, onClose }) => {
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
     if (name === 'courses_enrolled' && type !== 'checkbox') return;
+    if (name === 'student_id_mode') {
+      setFormData((prev) => ({ ...prev, student_id_mode: value }));
+      return;
+    }
     if (type === 'checkbox') {
       const id = parseInt(value);
       setFormData(prev => ({
@@ -129,6 +142,15 @@ const StudentForm = ({ student, onClose }) => {
     e.preventDefault();
     setLoading(true);
     setError('');
+
+    if (!student && formData.student_id_mode === 'manual') {
+      const manualId = normalizeStudentIdInput(formData.student_id);
+      if (!isValidStudentIdFormat(manualId)) {
+        setError(`Student ID must match format ${STUDENT_ID_FORMAT_HINT}`);
+        setLoading(false);
+        return;
+      }
+    }
 
     try {
       const profileImageValue = (formData.profile_image != null && String(formData.profile_image).trim() !== '')
@@ -154,6 +176,10 @@ const StudentForm = ({ student, onClose }) => {
       };
       if (!student) {
         payload.password = formData.password && String(formData.password).trim() ? formData.password : 'Student@123';
+        payload.student_id_mode = formData.student_id_mode === 'manual' ? 'manual' : 'auto';
+        if (payload.student_id_mode === 'manual') {
+          payload.student_id = normalizeStudentIdInput(formData.student_id);
+        }
       }
 
       if (student) {
@@ -221,6 +247,78 @@ const StudentForm = ({ student, onClose }) => {
               />
               {uploadingImage && <small className="text-muted">Uploading...</small>}
             </div>
+
+            {!student && (
+              <div className="mb-3 border rounded p-3 bg-light">
+                <label className="form-label fw-semibold">Student ID</label>
+                <div className="mb-2">
+                  <div className="form-check form-check-inline">
+                    <input
+                      className="form-check-input"
+                      type="radio"
+                      name="student_id_mode"
+                      id="student_id_auto"
+                      value="auto"
+                      checked={formData.student_id_mode === 'auto'}
+                      onChange={handleChange}
+                    />
+                    <label className="form-check-label" htmlFor="student_id_auto">
+                      Generate automatically
+                    </label>
+                  </div>
+                  <div className="form-check form-check-inline">
+                    <input
+                      className="form-check-input"
+                      type="radio"
+                      name="student_id_mode"
+                      id="student_id_manual"
+                      value="manual"
+                      checked={formData.student_id_mode === 'manual'}
+                      onChange={handleChange}
+                    />
+                    <label className="form-check-label" htmlFor="student_id_manual">
+                      Enter manually
+                    </label>
+                  </div>
+                </div>
+                {formData.student_id_mode === 'auto' ? (
+                  <p className="small text-muted mb-0">
+                    The system will assign an ID in format <code>{STUDENT_ID_FORMAT_HINT}</code>
+                    {idPreview ? (
+                      <>
+                        {' '}
+                        (example: <code>{idPreview}</code>)
+                      </>
+                    ) : null}
+                  </p>
+                ) : (
+                  <>
+                    <input
+                      type="text"
+                      className="form-control font-monospace"
+                      name="student_id"
+                      value={formData.student_id}
+                      onChange={(e) =>
+                        setFormData((prev) => ({
+                          ...prev,
+                          student_id: normalizeStudentIdInput(e.target.value)
+                        }))
+                      }
+                      placeholder="STU-12345678-AB12"
+                      required
+                    />
+                    <small className="text-muted">Format: {STUDENT_ID_FORMAT_HINT}</small>
+                  </>
+                )}
+              </div>
+            )}
+
+            {student?.student_id && (
+              <div className="mb-3">
+                <label className="form-label">Student ID</label>
+                <input type="text" className="form-control font-monospace" value={student.student_id} disabled readOnly />
+              </div>
+            )}
 
             {/* BASIC INFO */}
             <div className="row">

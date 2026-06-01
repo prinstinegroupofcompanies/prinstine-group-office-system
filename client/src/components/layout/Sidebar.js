@@ -235,7 +235,7 @@ const Sidebar = () => {
     if (userRole === 'student') {
       items.push({ path: '/student', label: 'Student Portal', icon: 'bi-mortarboard', roles: ['Student'], studentPortal: true });
     } else if (userRole === 'instructor') {
-      items.push({ path: '/academy', label: 'Dashboard', icon: 'bi-house', roles: ['Instructor'], instructorMain: true });
+      items.push({ path: '/instructor-dashboard', label: 'Instructor Dashboard', icon: 'bi-house', roles: ['Instructor'], instructorMain: true });
     } else if (userRole === 'staff') {
       items.push({ path: '/staff-dashboard', label: 'Staff Dashboard', icon: 'bi-house', roles: ['Staff'] });
     } else if (userRole === 'departmenthead') {
@@ -244,16 +244,17 @@ const Sidebar = () => {
       items.push({ path: '/dashboard', label: 'Dashboard', icon: 'bi-house', roles: ['Admin'] });
     }
 
-    pushSection('Work');
-    // Common work modules
-    items.push(
-      { path: '/clients', label: 'Clients', icon: 'bi-person-badge', roles: ['Admin', 'Staff', 'DepartmentHead'] },
-      { path: '/reports', label: 'Reports', icon: 'bi-file-text', roles: ['Admin', 'Staff', 'DepartmentHead'] },
-      { path: '/academy', label: 'Academy', icon: 'bi-mortarboard', roles: ['Admin', 'DepartmentHead', 'Staff', 'Instructor'], academy: true, instructorAcademy: true },
-      { path: '/attendance', label: 'Attendance', icon: 'bi-clock', roles: ['Admin', 'Staff', 'DepartmentHead'] },
-      { path: '/requisitions', label: 'Requisitions', icon: 'bi-clipboard-check', roles: ['Admin', 'Staff', 'DepartmentHead'] },
-      { path: '/targets', label: 'Targets', icon: 'bi-bullseye', roles: ['Admin', 'Staff', 'DepartmentHead'] }
-    );
+    if (userRole !== 'instructor') {
+      pushSection('Work');
+      items.push(
+        { path: '/clients', label: 'Clients', icon: 'bi-person-badge', roles: ['Admin', 'Staff', 'DepartmentHead'] },
+        { path: '/reports', label: 'Reports', icon: 'bi-file-text', roles: ['Admin', 'Staff', 'DepartmentHead'] },
+        { path: '/academy', label: 'Academy', icon: 'bi-mortarboard', roles: ['Admin', 'DepartmentHead', 'Staff'], academy: true },
+        { path: '/attendance', label: 'Attendance', icon: 'bi-clock', roles: ['Admin', 'Staff', 'DepartmentHead'] },
+        { path: '/requisitions', label: 'Requisitions', icon: 'bi-clipboard-check', roles: ['Admin', 'Staff', 'DepartmentHead'] },
+        { path: '/targets', label: 'Targets', icon: 'bi-bullseye', roles: ['Admin', 'Staff', 'DepartmentHead'] }
+      );
+    }
 
     // Finance menus
     pushSection('Finance');
@@ -402,6 +403,7 @@ const Sidebar = () => {
                 (item.path === '/staff-dashboard' && location.pathname === '/dashboard' && normalizeRole(user?.role) === 'staff') ||
                 (item.path === '/department-dashboard' && location.pathname === '/dashboard' && normalizeRole(user?.role) === 'departmenthead') ||
                 (item.path === '/student' && location.pathname.startsWith('/student')) ||
+                (item.path === '/instructor-dashboard' && location.pathname.startsWith('/instructor-dashboard')) ||
                 (item.path === '/academy' && location.pathname.startsWith('/academy')) ||
                 (item.path === '/ict/audit-trail' && location.pathname.startsWith('/ict/audit-trail'));
               

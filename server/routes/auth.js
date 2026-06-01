@@ -17,7 +17,7 @@ function generateOTP() {
 
 // Login
 router.post('/login', [
-  body('email').isEmail().normalizeEmail().withMessage('Valid email is required'),
+  body('email').trim().notEmpty().withMessage('Email or username is required'),
   body('password').notEmpty().withMessage('Password is required')
 ], async (req, res) => {
   const requestStartTime = Date.now();
@@ -39,32 +39,24 @@ router.post('/login', [
     }
 
     const { email, password } = req.body;
-    
-    // Normalize email for case-insensitive lookup
-    // express-validator's normalizeEmail() may have already modified it, so use the original email
-    const normalizedEmail = (email || '').toLowerCase().trim();
-    console.log('Login attempt for email:', normalizedEmail);
-    console.log('Original email from body:', email);
 
-    // Find user (case-insensitive email lookup) - optimized query with index
-    // Use normalized email directly to leverage index
-    const user = await db.get(
+    const loginId = (email || '').toLowerCase().trim();
+    console.log('Login attempt for:', loginId);
+
+    let user = await db.get(
       'SELECT id, email, username, password_hash, role, name, phone, profile_image, is_active, email_verified FROM users WHERE LOWER(TRIM(email)) = ? LIMIT 1',
-      [normalizedEmail]
+      [loginId]
     );
 
     if (!user) {
-      console.log('User not found for email:', email);
-      console.log('Normalized email searched:', normalizedEmail);
-      // Try to find similar emails for debugging
-      const similarEmails = await db.all(
-        'SELECT email, role FROM users WHERE email LIKE ? LIMIT 5',
-        [`%${normalizedEmail.split('@')[0]}%`]
+      user = await db.get(
+        'SELECT id, email, username, password_hash, role, name, phone, profile_image, is_active, email_verified FROM users WHERE LOWER(TRIM(username)) = ? LIMIT 1',
+        [loginId]
       );
-      if (similarEmails.length > 0) {
-        console.log('Similar emails found:', similarEmails.map(u => u.email).join(', '));
-      }
-      return res.status(401).json({ error: 'Invalid email or password' });
+    }
+
+    if (!user) {
+      return res.status(401).json({ error: 'Invalid email/username or password' });
     }
 
     console.log('User found:', { id: user.id, email: user.email, role: user.role, is_active: user.is_active });
