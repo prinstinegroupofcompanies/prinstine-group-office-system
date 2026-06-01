@@ -14,6 +14,12 @@ const {
   isValidStudentIdFormat,
   normalizeStudentId
 } = require('../utils/academyIds');
+const {
+  hasAcademyPermission,
+  hasAnyAcademyPermission
+} = require('../utils/academyPermissions');
+
+router.use('/permissions', require('./academyPermissions'));
 const crypto = require('crypto');
 const path = require('path');
 
@@ -37,98 +43,12 @@ function isCertificateWindowOpenForCohort(row) {
   return true;
 }
 
-// Helper function to check if user is Academy staff (Academy, eLearning, or Marketing department)
-// Includes: Admin, Academy Department Head, Marketing Department Head, and Assistant Academy Coordinator (Staff in Academy department)
+// Academy staff: Admin, dept head, instructor, or staff with assigned / legacy academy permissions
 async function isAcademyStaff(user) {
   if (!user) return false;
-  
-  // Admin always has access
-  if (user.role === 'Admin') {
-    return true;
-  }
-
-  // Instructors manage academy resources
-  if (user.role === 'Instructor') {
-    return true;
-  }
-  
-  // Explicit email allowlist: Academy coordinators and Academy Head (full academy rights regardless of department)
-  const userEmail = (user.email || '').toLowerCase().trim();
-  const academyCoordinatorEmails = [
-    'samsonbryant89@gmail.com',
-    'cvulu@prinstinegroup.org',
-    'cvulue@prinstinegroup.org',
-    'marjorie@prinstinegroup.org'
-  ];
-  const academyHeadEmails = ['fwallace@prinstinegroup.org'];
-  if (academyCoordinatorEmails.includes(userEmail) || academyHeadEmails.includes(userEmail)) {
-    console.log(`[isAcademyStaff] User ${userEmail} identified as Academy staff via email allowlist`);
-    return true;
-  }
-  
-  // Check if DepartmentHead manages Academy department (Academy Department Head)
-  if (user.role === 'DepartmentHead') {
-    try {
-      const USE_POSTGRESQL = !!process.env.DATABASE_URL;
-      let hasHeadEmail = false;
-      if (USE_POSTGRESQL) {
-        const col = await db.get(
-          "SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'departments' AND column_name = 'head_email'"
-        );
-        hasHeadEmail = !!col;
-      } else {
-        const deptTableInfo = await db.all("PRAGMA table_info(departments)");
-        const deptColumnNames = (deptTableInfo || []).map(col => col.name);
-        hasHeadEmail = deptColumnNames.includes('head_email');
-      }
-      
-      let dept;
-      if (hasHeadEmail) {
-        dept = await db.get(
-          'SELECT name FROM departments WHERE manager_id = ? OR LOWER(TRIM(head_email)) = ?',
-          [user.id, userEmail]
-        );
-      } else {
-        dept = await db.get(
-          'SELECT name FROM departments WHERE manager_id = ?',
-          [user.id]
-        );
-      }
-      
-      if (dept && dept.name) {
-        const deptName = (dept.name || '').toLowerCase();
-        if (deptName.includes('academy') || deptName.includes('elearning') || deptName.includes('e-learning') || deptName.includes('marketing')) {
-          return true;
-        }
-      }
-    } catch (error) {
-      console.error('Error checking department head department:', error);
-    }
-  }
-  
-  // Check if Staff belongs to Academy department (Assistant Academy Coordinator)
-  if (user.role === 'Staff') {
-    try {
-      const staff = await db.get('SELECT department, position FROM staff WHERE user_id = ?', [user.id]);
-      if (staff) {
-        const deptName = (staff.department || '').toLowerCase();
-        const positionName = (staff.position || '').toLowerCase();
-        
-        if (deptName.includes('academy') || deptName.includes('elearning') || deptName.includes('e-learning')) {
-          console.log(`[isAcademyStaff] User ${userEmail} identified as Academy staff via department: ${staff.department}`);
-          return true;
-        }
-        if (positionName.includes('academy') && positionName.includes('coordinator')) {
-          console.log(`[isAcademyStaff] User ${userEmail} identified as Academy Coordinator via position: ${staff.position}`);
-          return true;
-        }
-      }
-    } catch (error) {
-      console.error('Error checking staff department (non-fatal):', error);
-    }
-  }
-  
-  return false;
+  if (user.role === 'Admin' || user.role === 'Instructor') return true;
+  if (user.isAcademyStaff === true) return true;
+  return hasAnyAcademyPermission(user);
 }
 
 // ========== STUDENTS ==========
@@ -583,9 +503,8 @@ router.post('/students', authenticateToken, requireRole('Admin', 'Instructor', '
       return res.status(400).json({ error: 'A valid email address is required.' });
     }
 
-    const academyStaff = await isAcademyStaff(req.user);
-    if (!academyStaff && req.user.role !== 'Admin') {
-      return res.status(403).json({ error: 'Only Academy staff and Admins can create students' });
+    if (!(await hasAcademyPermission(req.user, 'students:manage'))) {
+      return res.status(403).json({ error: 'You do not have permission to add students' });
     }
 
     const approved = req.user.role === 'Admin' ? 1 : 0;
@@ -798,8 +717,18 @@ router.post('/students', authenticateToken, requireRole('Admin', 'Instructor', '
   }
 });
 
-// Approve/reject student (Admin only) - MUST be before /students/:id
-router.put('/students/:id/approve', authenticateToken, requireRole('Admin'), [
+// Approve/reject student — Admin or academy dept head / approve:students permission
+router.put('/students/:id/approve', authenticateToken, async (req, res, next) => {
+  try {
+    const can =
+      req.user.role === 'Admin' ||
+      (await hasAcademyPermission(req.user, 'approve:students'));
+    if (!can) return res.status(403).json({ error: 'Insufficient permissions to approve students' });
+    next();
+  } catch (e) {
+    next(e);
+  }
+}, [
   body('approved').isBoolean().withMessage('Approved status is required'),
   body('admin_notes').optional().trim()
 ], async (req, res) => {
@@ -1740,9 +1669,10 @@ router.post('/grades/submit', authenticateToken, [
   body('proposed_grade').trim().notEmpty().withMessage('proposed_grade is required')
 ], async (req, res) => {
   try {
-    const academyStaff = await isAcademyStaff(req.user);
-    if (req.user.role !== 'Instructor' && !academyStaff) {
-      return res.status(403).json({ error: 'Only Instructors and Academy staff can submit grades' });
+    const canSubmit =
+      req.user.role === 'Instructor' || (await hasAcademyPermission(req.user, 'grades:manage'));
+    if (!canSubmit) {
+      return res.status(403).json({ error: 'You do not have permission to submit grades' });
     }
     const errs = validationResult(req);
     if (!errs.isEmpty()) return res.status(400).json({ errors: errs.array() });
@@ -1788,18 +1718,21 @@ router.get('/grades/pending', authenticateToken, async (req, res) => {
     }
     const rows = await db.all(
       `SELECT g.id, g.student_id, g.course_id, g.proposed_grade, g.status, g.submitted_by, g.created_at,
+              g.endorsed_by, g.endorsed_at,
               s.student_id as student_code, u.name as student_name, u.email as student_email,
               c.course_code, c.title as course_title,
-              sub.name as submitted_by_name
+              sub.name as submitted_by_name,
+              endr.name as endorsed_by_name
        FROM grade_submissions g
        JOIN students s ON g.student_id = s.id
        JOIN users u ON s.user_id = u.id
        JOIN courses c ON g.course_id = c.id
        LEFT JOIN users sub ON g.submitted_by = sub.id
+       LEFT JOIN users endr ON g.endorsed_by = endr.id
        WHERE g.status = 'Pending'
        ORDER BY g.created_at ASC`
     );
-    res.json({ pending: rows });
+    res.json({ pending: rows, canEndorse: await hasAcademyPermission(req.user, 'grades:endorse'), canFinalApprove: await hasAcademyPermission(req.user, 'grades:final_approve') });
   } catch (e) {
     console.error('Grades pending error:', e);
     res.status(500).json({ error: 'Failed to fetch pending grades' });
@@ -1853,17 +1786,50 @@ router.get('/grades/approved', authenticateToken, async (req, res) => {
   }
 });
 
-// PUT /api/academy/grades/:id/approve (Admin)
-router.put('/grades/:id/approve', authenticateToken, requireRole('Admin'), [
+// PUT /api/academy/grades/:id/endorse — dept head review (does not apply grade to enrollment)
+router.put('/grades/:id/endorse', authenticateToken, [
   body('notes').optional().trim()
 ], async (req, res) => {
   try {
+    if (!(await hasAcademyPermission(req.user, 'grades:endorse'))) {
+      return res.status(403).json({ error: 'Insufficient permissions to endorse grades' });
+    }
     const errs = validationResult(req);
     if (!errs.isEmpty()) return res.status(400).json({ errors: errs.array() });
     const id = req.params.id;
     const notes = req.body.notes || null;
 
-    const g = await db.get('SELECT id, student_id, course_id, proposed_grade, status, submitted_by FROM grade_submissions WHERE id = ?', [id]);
+    const g = await db.get('SELECT id, status, endorsed_by FROM grade_submissions WHERE id = ?', [id]);
+    if (!g) return res.status(404).json({ error: 'Grade submission not found' });
+    if (g.status !== 'Pending') return res.status(400).json({ error: 'Submission is not pending' });
+    if (g.endorsed_by) return res.status(400).json({ error: 'Grade already endorsed' });
+
+    await db.run(
+      `UPDATE grade_submissions SET endorsed_by = ?, endorsed_at = CURRENT_TIMESTAMP, notes = COALESCE(?, notes), updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+      [req.user.id, notes, id]
+    );
+    await logAction(req.user.id, 'endorse_grade', 'academy', id, {}, req);
+    res.json({ message: 'Grade endorsed — awaiting admin final approval', submission: { id: parseInt(id, 10), endorsed: true } });
+  } catch (e) {
+    console.error('Grade endorse error:', e);
+    res.status(500).json({ error: 'Failed to endorse grade' });
+  }
+});
+
+// PUT /api/academy/grades/:id/approve — Admin final approval (applies grade to enrollment)
+router.put('/grades/:id/approve', authenticateToken, [
+  body('notes').optional().trim()
+], async (req, res) => {
+  try {
+    if (!(await hasAcademyPermission(req.user, 'grades:final_approve'))) {
+      return res.status(403).json({ error: 'Only administrators can final-approve grades' });
+    }
+    const errs = validationResult(req);
+    if (!errs.isEmpty()) return res.status(400).json({ errors: errs.array() });
+    const id = req.params.id;
+    const notes = req.body.notes || null;
+
+    const g = await db.get('SELECT id, student_id, course_id, proposed_grade, status, submitted_by, endorsed_by FROM grade_submissions WHERE id = ?', [id]);
     if (!g) return res.status(404).json({ error: 'Grade submission not found' });
     if (g.status !== 'Pending') return res.status(400).json({ error: 'Submission is not pending' });
 
@@ -1897,8 +1863,18 @@ router.put('/grades/:id/approve', authenticateToken, requireRole('Admin'), [
   }
 });
 
-// PUT /api/academy/grades/:id/reject (Admin)
-router.put('/grades/:id/reject', authenticateToken, requireRole('Admin'), [
+// PUT /api/academy/grades/:id/reject
+router.put('/grades/:id/reject', authenticateToken, async (req, res, next) => {
+  try {
+    const can =
+      (await hasAcademyPermission(req.user, 'grades:final_approve')) ||
+      (await hasAcademyPermission(req.user, 'grades:endorse'));
+    if (!can) return res.status(403).json({ error: 'Insufficient permissions to reject grades' });
+    next();
+  } catch (e) {
+    next(e);
+  }
+}, [
   body('notes').optional().trim()
 ], async (req, res) => {
   try {
@@ -2056,7 +2032,17 @@ router.delete('/grades/:id', authenticateToken, requireRole('Admin'), async (req
 // ========== ADMIN APPROVAL ENDPOINTS ==========
 
 // Approve/reject course fee (Admin only)
-router.put('/courses/:id/approve-fee', authenticateToken, requireRole('Admin'), [
+router.put('/courses/:id/approve-fee', authenticateToken, async (req, res, next) => {
+  try {
+    const can =
+      req.user.role === 'Admin' ||
+      (await hasAcademyPermission(req.user, 'approve:course_fees'));
+    if (!can) return res.status(403).json({ error: 'Insufficient permissions to approve course fees' });
+    next();
+  } catch (e) {
+    next(e);
+  }
+}, [
   body('approved').isBoolean().withMessage('Approved status is required'),
   body('admin_notes').optional().trim()
 ], async (req, res) => {
@@ -2092,7 +2078,17 @@ router.put('/courses/:id/approve-fee', authenticateToken, requireRole('Admin'), 
 });
 
 // Approve/reject instructor (Admin only)
-router.put('/instructors/:id/approve', authenticateToken, requireRole('Admin'), [
+router.put('/instructors/:id/approve', authenticateToken, async (req, res, next) => {
+  try {
+    const can =
+      req.user.role === 'Admin' ||
+      (await hasAcademyPermission(req.user, 'approve:instructors'));
+    if (!can) return res.status(403).json({ error: 'Insufficient permissions to approve instructors' });
+    next();
+  } catch (e) {
+    next(e);
+  }
+}, [
   body('approved').isBoolean().withMessage('Approved status is required'),
   body('admin_notes').optional().trim()
 ], async (req, res) => {

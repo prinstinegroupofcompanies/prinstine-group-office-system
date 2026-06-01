@@ -42,6 +42,12 @@ const Sidebar = () => {
     if (!user) return false;
 
     if (normalizeRole(user.role) === 'admin') return setHasAcademyAccess(true);
+    if (user.isAcademyStaff === true) return setHasAcademyAccess(true);
+    if (Array.isArray(user.academyPermissions) && user.academyPermissions.length > 0) {
+      return setHasAcademyAccess(true);
+    }
+    if (user.isAcademyDepartmentHead === true) return setHasAcademyAccess(true);
+    if (normalizeRole(user.role) === 'instructor') return setHasAcademyAccess(true);
 
     const academyAllowlistEmails = ['fwallace@prinstinegroup.org'];
     if (academyAllowlistEmails.includes(user.email?.toLowerCase().trim())) {

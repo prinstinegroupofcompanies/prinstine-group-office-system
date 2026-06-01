@@ -2284,6 +2284,32 @@ async function initializeDatabase() {
       }
     }
 
+    const staffAcademyPermsPath = path.join(__dirname, 'database/migrations/031_staff_academy_permissions.sql');
+    if (fs.existsSync(staffAcademyPermsPath)) {
+      const sapExists = await db.get("SELECT name FROM sqlite_master WHERE type='table' AND name='staff_academy_permissions'");
+      if (!sapExists) {
+        console.log('Creating staff_academy_permissions table...');
+        const sql = fs.readFileSync(staffAcademyPermsPath, 'utf8');
+        const stmts = sql.split(';').filter((s) => s.trim().length > 0);
+        for (const statement of stmts) {
+          if (statement.trim()) {
+            try {
+              await db.run(statement);
+            } catch (e) {
+              if (!e.message.includes('already exists') && !e.message.includes('duplicate')) {
+                console.error('Error executing staff_academy_permissions migration:', e.message);
+              }
+            }
+          }
+        }
+        console.log('✓ staff_academy_permissions created');
+      }
+    }
+
+    const { addColumnIfMissing } = require('./utils/schemaHelpers');
+    await addColumnIfMissing(db, 'grade_submissions', 'endorsed_by', 'INTEGER');
+    await addColumnIfMissing(db, 'grade_submissions', 'endorsed_at', 'DATETIME');
+
     // Attendance: office geolocation columns (sign-in / sign-out lat-lng audit)
     if (fs.existsSync(attendanceGeoCoordsPath)) {
       const geoSql = fs.readFileSync(attendanceGeoCoordsPath, 'utf8');

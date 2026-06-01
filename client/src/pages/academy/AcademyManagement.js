@@ -2,7 +2,19 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { Link } from 'react-router-dom';
 import api from '../../config/api';
 import { useAuth } from '../../hooks/useAuth';
-import { isAcademyStaff, canApproveAcademy } from '../../utils/academyUtils';
+import {
+  isAcademyStaff,
+  hasAnyAcademyPermission,
+  canViewAcademyTab,
+  canManageAcademySection,
+  canManageAcademyPermissions,
+  canApproveStudents,
+  canApproveInstructors,
+  canApproveCourseFees,
+  canEndorseGrades,
+  canFinalApproveGrades
+} from '../../utils/academyPermissions';
+import AcademyStaffPermissions from './AcademyStaffPermissions';
 import { getSocket } from '../../config/socket';
 import {
   exportCoursesExcel,
@@ -64,14 +76,17 @@ const AcademyManagement = () => {
   /** Client-side sort for student table (API returns alphabetical by name by default) */
   const [studentSort, setStudentSort] = useState('name_asc');
   
-  // Check if user is Academy staff (can add/edit/view)
   const userIsAcademyStaff = isAcademyStaff(user);
-  // Check if user can approve (Admin only)
-  const userCanApprove = canApproveAcademy(user);
   const canAccessAcademyMgmt =
-    user && (user.role === 'Admin' || userIsAcademyStaff || user.role === 'Instructor');
-  const canSeeGradeQueue = user && (user.role === 'Admin' || userIsAcademyStaff);
+    user && (user.role === 'Admin' || user.role === 'Instructor' || hasAnyAcademyPermission(user));
+  const canSeeGradeQueue = user && canViewAcademyTab(user, 'grades');
   const canExportLists = user && (user.role === 'Admin' || userIsAcademyStaff);
+  const canManagePerms = user && canManageAcademyPermissions(user);
+  const canFinalApprove = user && canFinalApproveGrades(user);
+  const canEndorse = user && canEndorseGrades(user);
+  const canApproveStudentRecords = user && canApproveStudents(user);
+  const canApproveInstructorRecords = user && canApproveInstructors(user);
+  const canApproveFees = user && canApproveCourseFees(user);
 
   const displayStudents = useMemo(() => {
     const list = [...(students || [])];
@@ -344,6 +359,18 @@ const AcademyManagement = () => {
     }
   };
 
+  const handleGradeEndorse = async (id) => {
+    try {
+      await api.put(`/academy/grades/${id}/endorse`, { notes: gradeNotes || undefined });
+      setGradeActionId(null);
+      setGradeActionMode(null);
+      setGradeNotes('');
+      fetchGradesPending();
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to endorse');
+    }
+  };
+
   const handleGradeApprove = async (id) => {
     try {
       await api.put(`/academy/grades/${id}/approve`, { notes: gradeNotes || undefined });
@@ -500,30 +527,46 @@ const AcademyManagement = () => {
     }
   };
 
-  // Don't block rendering - show content with individual loading states per tab
+  useEffect(() => {
+    if (!user || !canAccessAcademyMgmt) return;
+    const tabs = ['courses', 'students', 'instructors', 'cohorts', 'grades', 'student-grades', 'certificates', 'permissions'];
+    if (canViewAcademyTab(user, activeTab) || (activeTab === 'permissions' && canManagePerms)) return;
+    const first = tabs.find((t) => (t === 'permissions' ? canManagePerms : canViewAcademyTab(user, t)));
+    if (first) setActiveTab(first);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, canAccessAcademyMgmt]);
+
+  if (!canAccessAcademyMgmt) {
+    return (
+      <div className="container-fluid py-4">
+        <div className="alert alert-warning">You do not have access to Academy management.</div>
+      </div>
+    );
+  }
+
   return (
     <div className="container-fluid">
       <div className="row mb-4">
         <div className="col-12 d-flex justify-content-between align-items-center">
           <h1 className="h3 mb-0">Academy Management</h1>
-          {(user?.role === 'Admin' || userIsAcademyStaff) && (
+          {(canAccessAcademyMgmt && (userIsAcademyStaff || user?.role === 'Admin')) && (
             <div>
-              {activeTab === 'courses' && (
+              {activeTab === 'courses' && canManageAcademySection(user, 'courses') && (
                 <button className="btn btn-primary me-2" onClick={handleAddCourse}>
                   <i className="bi bi-plus-circle me-2"></i>Add Course
                 </button>
               )}
-              {activeTab === 'students' && (
+              {activeTab === 'students' && canManageAcademySection(user, 'students') && (
                 <button className="btn btn-primary me-2" onClick={handleAddStudent}>
                   <i className="bi bi-plus-circle me-2"></i>Add Student
                 </button>
               )}
-              {activeTab === 'instructors' && (
+              {activeTab === 'instructors' && canManageAcademySection(user, 'instructors') && (
                 <button className="btn btn-primary me-2" onClick={handleAddInstructor}>
                   <i className="bi bi-plus-circle me-2"></i>Add Instructor
                 </button>
               )}
-              {activeTab === 'cohorts' && (
+              {activeTab === 'cohorts' && canManageAcademySection(user, 'cohorts') && (
                 <button className="btn btn-primary" onClick={handleAddCohort}>
                   <i className="bi bi-plus-circle me-2"></i>Add Cohort
                 </button>
@@ -534,9 +577,10 @@ const AcademyManagement = () => {
       </div>
 
       <ul className="nav nav-tabs mb-4">
-        {(user?.role === 'Admin' || userIsAcademyStaff || user?.role === 'Instructor' || user?.role === 'Student') && (
+        {canViewAcademyTab(user, 'courses') && (
           <li className="nav-item">
             <button
+              type="button"
               className={`nav-link ${activeTab === 'courses' ? 'active' : ''}`}
               onClick={() => setActiveTab('courses')}
             >
@@ -544,57 +588,82 @@ const AcademyManagement = () => {
             </button>
           </li>
         )}
-        {(user?.role === 'Admin' || userIsAcademyStaff) && (
-          <>
-            <li className="nav-item">
-              <button
-                className={`nav-link ${activeTab === 'students' ? 'active' : ''}`}
-                onClick={() => setActiveTab('students')}
-              >
-                Students
-              </button>
-            </li>
-            <li className="nav-item">
-              <button
-                className={`nav-link ${activeTab === 'instructors' ? 'active' : ''}`}
-                onClick={() => setActiveTab('instructors')}
-              >
-                Instructors
-              </button>
-            </li>
-            <li className="nav-item">
-              <button
-                className={`nav-link ${activeTab === 'cohorts' ? 'active' : ''}`}
-                onClick={() => setActiveTab('cohorts')}
-              >
-                Cohorts
-              </button>
-            </li>
-            <li className="nav-item">
-              <button
-                className={`nav-link ${activeTab === 'grades' ? 'active' : ''}`}
-                onClick={() => setActiveTab('grades')}
-              >
-                Grades {canSeeGradeQueue && gradesPending.length > 0 && <span className="badge bg-warning text-dark">{gradesPending.length}</span>}
-              </button>
-            </li>
-            <li className="nav-item">
-              <button
-                className={`nav-link ${activeTab === 'student-grades' ? 'active' : ''}`}
-                onClick={() => setActiveTab('student-grades')}
-              >
-                Student Grade
-              </button>
-            </li>
-            <li className="nav-item">
-              <button
-                className={`nav-link ${activeTab === 'certificates' ? 'active' : ''}`}
-                onClick={() => setActiveTab('certificates')}
-              >
-                Certificates
-              </button>
-            </li>
-          </>
+        {canViewAcademyTab(user, 'students') && (
+          <li className="nav-item">
+            <button
+              type="button"
+              className={`nav-link ${activeTab === 'students' ? 'active' : ''}`}
+              onClick={() => setActiveTab('students')}
+            >
+              Students
+            </button>
+          </li>
+        )}
+        {canViewAcademyTab(user, 'instructors') && (
+          <li className="nav-item">
+            <button
+              type="button"
+              className={`nav-link ${activeTab === 'instructors' ? 'active' : ''}`}
+              onClick={() => setActiveTab('instructors')}
+            >
+              Instructors
+            </button>
+          </li>
+        )}
+        {canViewAcademyTab(user, 'cohorts') && (
+          <li className="nav-item">
+            <button
+              type="button"
+              className={`nav-link ${activeTab === 'cohorts' ? 'active' : ''}`}
+              onClick={() => setActiveTab('cohorts')}
+            >
+              Cohorts
+            </button>
+          </li>
+        )}
+        {canViewAcademyTab(user, 'grades') && (
+          <li className="nav-item">
+            <button
+              type="button"
+              className={`nav-link ${activeTab === 'grades' ? 'active' : ''}`}
+              onClick={() => setActiveTab('grades')}
+            >
+              Grades {canSeeGradeQueue && gradesPending.length > 0 && <span className="badge bg-warning text-dark">{gradesPending.length}</span>}
+            </button>
+          </li>
+        )}
+        {canViewAcademyTab(user, 'student-grades') && (
+          <li className="nav-item">
+            <button
+              type="button"
+              className={`nav-link ${activeTab === 'student-grades' ? 'active' : ''}`}
+              onClick={() => setActiveTab('student-grades')}
+            >
+              Student Grade
+            </button>
+          </li>
+        )}
+        {canViewAcademyTab(user, 'certificates') && (
+          <li className="nav-item">
+            <button
+              type="button"
+              className={`nav-link ${activeTab === 'certificates' ? 'active' : ''}`}
+              onClick={() => setActiveTab('certificates')}
+            >
+              Certificates
+            </button>
+          </li>
+        )}
+        {canManagePerms && (
+          <li className="nav-item">
+            <button
+              type="button"
+              className={`nav-link ${activeTab === 'permissions' ? 'active' : ''}`}
+              onClick={() => setActiveTab('permissions')}
+            >
+              Permissions
+            </button>
+          </li>
         )}
         {user?.role === 'Instructor' && !userIsAcademyStaff && (
           <>
@@ -698,7 +767,7 @@ const AcademyManagement = () => {
                               <button className="btn btn-sm btn-outline-primary me-2" onClick={() => handleEditCourse(course)}>
                                 <i className="bi bi-pencil me-1"></i>Edit
                               </button>
-                              {userCanApprove && course.fee_approved === 0 && (
+                              {canApproveFees && course.fee_approved === 0 && (
                                 <>
                                   <button 
                                     className="btn btn-sm btn-outline-success me-2" 
@@ -926,12 +995,12 @@ const AcademyManagement = () => {
                           <Link to={`/academy/students/view/${student.id}`} className="btn btn-sm btn-outline-info me-2">
                             <i className="bi bi-eye me-1"></i>View
                           </Link>
-                          {userIsAcademyStaff && (
+                          {canManageAcademySection(user, 'students') && (
                             <>
                               <button className="btn btn-sm btn-outline-primary me-2" onClick={() => handleEditStudent(student)}>
                                 <i className="bi bi-pencil me-1"></i>Edit
                               </button>
-                              {userCanApprove && student.approved === 0 && (
+                              {canApproveStudentRecords && student.approved === 0 && (
                                 <>
                                   <button 
                                     className="btn btn-sm btn-outline-success me-2" 
@@ -1045,7 +1114,7 @@ const AcademyManagement = () => {
                               <button className="btn btn-sm btn-outline-primary me-2" onClick={() => handleEditInstructor(instructor)}>
                                 <i className="bi bi-pencil me-1"></i>Edit
                               </button>
-                              {userCanApprove && instructor.approved === 0 && (
+                              {canApproveInstructorRecords && instructor.approved === 0 && (
                                 <>
                                   <button 
                                     className="btn btn-sm btn-outline-success me-2" 
@@ -1179,7 +1248,7 @@ const AcademyManagement = () => {
 
       {activeTab === 'grades' && (
         <div className="row">
-          {(userIsAcademyStaff || user?.role === 'Instructor') && (
+          {(canManageAcademySection(user, 'grades') || user?.role === 'Instructor') && (
             <div className="col-lg-5 mb-4">
               <div className="card">
                 <div className="card-header fw-bold">Submit grade</div>
@@ -1236,7 +1305,10 @@ const AcademyManagement = () => {
           {canSeeGradeQueue && (
             <div className={userIsAcademyStaff || user?.role === 'Instructor' ? 'col-lg-7' : 'col-12'}>
               <div className="card">
-                <div className="card-header fw-bold">Pending approval {userCanApprove ? '' : '(Admin approves)'}</div>
+                <div className="card-header fw-bold">
+                  Pending grades
+                  {canFinalApprove ? ' — Admin final approval applies grades' : canEndorse ? ' — Endorse then admin final approval' : ''}
+                </div>
                 <div className="card-body p-0">
                   {gradesPendingLoading ? (
                     <div className="text-center py-4"><div className="spinner-border text-primary" /></div>
@@ -1251,6 +1323,7 @@ const AcademyManagement = () => {
                             <th>Course</th>
                             <th>Grade</th>
                             <th>Submitted by</th>
+                            <th>Endorsed</th>
                             <th></th>
                           </tr>
                         </thead>
@@ -1262,16 +1335,31 @@ const AcademyManagement = () => {
                               <td><strong>{g.proposed_grade}</strong></td>
                               <td>{g.submitted_by_name || '—'}</td>
                               <td>
-                                {userCanApprove ? (
-                                  <div className="d-flex flex-wrap gap-1">
-                                    <button type="button" className="btn btn-sm btn-outline-primary" onClick={() => openPendingGradeEdit(g)}>Edit</button>
-                                    <button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => deletePendingGrade(g)}>Delete</button>
-                                    <button type="button" className="btn btn-sm btn-success" onClick={() => { setGradeActionId(g.id); setGradeActionMode('approve'); setGradeNotes(''); }}>Approve</button>
-                                    <button type="button" className="btn btn-sm btn-danger" onClick={() => { setGradeActionId(g.id); setGradeActionMode('reject'); setGradeNotes(''); }}>Reject</button>
-                                  </div>
+                                {g.endorsed_by ? (
+                                  <span className="badge bg-info text-dark">{g.endorsed_by_name || 'Yes'}</span>
                                 ) : (
-                                  <span className="text-muted small">Awaiting admin</span>
+                                  <span className="text-muted small">—</span>
                                 )}
+                              </td>
+                              <td>
+                                <div className="d-flex flex-wrap gap-1">
+                                  {canFinalApprove && (
+                                    <>
+                                      <button type="button" className="btn btn-sm btn-outline-primary" onClick={() => openPendingGradeEdit(g)}>Edit</button>
+                                      <button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => deletePendingGrade(g)}>Delete</button>
+                                      <button type="button" className="btn btn-sm btn-success" onClick={() => { setGradeActionId(g.id); setGradeActionMode('approve'); setGradeNotes(''); }}>Final approve</button>
+                                    </>
+                                  )}
+                                  {canEndorse && !g.endorsed_by && (
+                                    <button type="button" className="btn btn-sm btn-outline-info" onClick={() => { setGradeActionId(g.id); setGradeActionMode('endorse'); setGradeNotes(''); }}>Endorse</button>
+                                  )}
+                                  {(canFinalApprove || canEndorse) && (
+                                    <button type="button" className="btn btn-sm btn-danger" onClick={() => { setGradeActionId(g.id); setGradeActionMode('reject'); setGradeNotes(''); }}>Reject</button>
+                                  )}
+                                  {!canFinalApprove && !canEndorse && (
+                                    <span className="text-muted small">View only</span>
+                                  )}
+                                </div>
                               </td>
                             </tr>
                           ))}
@@ -1286,7 +1374,9 @@ const AcademyManagement = () => {
                   <div className="modal-dialog modal-dialog-centered">
                     <div className="modal-content">
                       <div className="modal-header">
-                        <h5 className="modal-title">{gradeActionMode === 'approve' ? 'Approve' : 'Reject'} grade</h5>
+                        <h5 className="modal-title">
+                          {gradeActionMode === 'approve' ? 'Final approve grade' : gradeActionMode === 'endorse' ? 'Endorse grade' : 'Reject grade'}
+                        </h5>
                         <button type="button" className="btn-close" onClick={() => { setGradeActionId(null); setGradeActionMode(null); setGradeNotes(''); }} aria-label="Close" />
                       </div>
                       <div className="modal-body">
@@ -1296,7 +1386,9 @@ const AcademyManagement = () => {
                       <div className="modal-footer">
                         <button type="button" className="btn btn-secondary" onClick={() => { setGradeActionId(null); setGradeActionMode(null); setGradeNotes(''); }}>Cancel</button>
                         {gradeActionMode === 'approve' ? (
-                          <button type="button" className="btn btn-success" onClick={() => handleGradeApprove(gradeActionId)}>Approve</button>
+                          <button type="button" className="btn btn-success" onClick={() => handleGradeApprove(gradeActionId)}>Final approve</button>
+                        ) : gradeActionMode === 'endorse' ? (
+                          <button type="button" className="btn btn-info" onClick={() => handleGradeEndorse(gradeActionId)}>Endorse</button>
                         ) : (
                           <button type="button" className="btn btn-danger" onClick={() => handleGradeReject(gradeActionId)}>Reject</button>
                         )}
@@ -1305,7 +1397,7 @@ const AcademyManagement = () => {
                   </div>
                 </div>
               )}
-              {pendingEditRow && userCanApprove && (
+              {pendingEditRow && canFinalApprove && (
                 <div className="modal d-block" style={{ background: 'rgba(0,0,0,0.5)' }} tabIndex={-1}>
                   <div className="modal-dialog modal-dialog-centered modal-lg">
                     <div className="modal-content">
@@ -1374,12 +1466,16 @@ const AcademyManagement = () => {
           cohorts={cohorts}
           courses={courses}
           students={studentsForSelect}
-          isAdmin={user?.role === 'Admin'}
+          isAdmin={canFinalApprove}
         />
       )}
 
-      {activeTab === 'certificates' && (
+      {activeTab === 'certificates' && canViewAcademyTab(user, 'certificates') && (
         <CertificateManagement embedded />
+      )}
+
+      {activeTab === 'permissions' && canManagePerms && (
+        <AcademyStaffPermissions />
       )}
 
       {showCohortForm && (

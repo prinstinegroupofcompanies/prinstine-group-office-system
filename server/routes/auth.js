@@ -6,6 +6,7 @@ const { hashPassword, comparePassword, generateToken, authenticateToken } = requ
 const { logAction } = require('../utils/audit');
 const { sendOTP, sendPasswordReset } = require('../utils/email');
 const { normalizeProfileImage } = require('../utils/normalizeProfileImage');
+const { attachAcademyContext } = require('../utils/academyPermissions');
 const crypto = require('crypto');
 
 // Generate OTP
@@ -118,7 +119,7 @@ router.post('/login', [
       console.error('Error logging login action (non-blocking):', err);
     });
 
-    const userResponse = {
+    let userResponse = {
       id: user.id,
       email: user.email,
       username: user.username,
@@ -128,6 +129,7 @@ router.post('/login', [
       profile_image: user.profile_image || null,
       emailVerified: user.email_verified === 1
     };
+    userResponse = await attachAcademyContext(userResponse);
     
     console.log('Login successful, returning user:', {
       id: userResponse.id,
@@ -215,7 +217,8 @@ router.get('/me', authenticateToken, async (req, res) => {
       }
     }
 
-    res.json({ user });
+    const enriched = await attachAcademyContext(user);
+    res.json({ user: enriched });
   } catch (error) {
     console.error('Get user error:', error);
     res.status(500).json({ error: 'Failed to fetch user' });
