@@ -9,8 +9,39 @@ const {
   canManageAcademyPermissions,
   getStoredPermissionsForUser,
   listAcademyStaffForPermissions,
-  setStaffAcademyPermissions
+  setStaffAcademyPermissions,
+  resolveAcademyPermissions,
+  isAcademyDepartmentHead
 } = require('../utils/academyPermissions');
+
+/** Current user's academy access (for sidebar / menu gating) */
+router.get('/me', authenticateToken, async (req, res) => {
+  try {
+    const academyPermissions = await resolveAcademyPermissions(req.user);
+    const isAcademyDeptHead = await isAcademyDepartmentHead(req.user);
+    const role = req.user.role;
+    const isAcademyStaff =
+      role === 'Admin' ||
+      role === 'Instructor' ||
+      isAcademyDeptHead ||
+      academyPermissions.length > 0;
+    const hasAccess =
+      role === 'Admin' ||
+      role === 'Instructor' ||
+      isAcademyDeptHead ||
+      academyPermissions.length > 0;
+
+    res.json({
+      hasAccess,
+      academyPermissions,
+      isAcademyDepartmentHead: isAcademyDeptHead,
+      isAcademyStaff: !!isAcademyStaff
+    });
+  } catch (e) {
+    console.error('Academy permissions me error:', e);
+    res.status(500).json({ error: 'Failed to load academy access' });
+  }
+});
 
 router.get('/definitions', authenticateToken, async (req, res) => {
   try {

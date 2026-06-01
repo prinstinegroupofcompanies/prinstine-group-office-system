@@ -34,7 +34,7 @@ export function hasAnyAcademyPermission(user) {
   if (user.role === 'Admin') return true;
   if (user.isAcademyDepartmentHead === true) return true;
   if (user.role === 'Instructor') return true;
-  if (user.isAcademyStaff === true && getUserAcademyPermissions(user).length > 0) return true;
+  if (user.isAcademyStaff === true) return true;
   return getUserAcademyPermissions(user).length > 0;
 }
 

@@ -6,10 +6,11 @@ import { useAuth } from '../../hooks/useAuth';
 import api from '../../config/api';
 import { getSocket } from '../../config/socket';
 import { checkStudentPaymentAccess } from '../../utils/studentPaymentAccess';
+import { hasAnyAcademyPermission } from '../../utils/academyPermissions';
 import './Sidebar.css';
 
 const Sidebar = () => {
-  const { user, logout } = useAuth();
+  const { user, logout, updateUser } = useAuth();
   const location = useLocation();
 
   const [collapsed, setCollapsed] = useState(false);
@@ -39,48 +40,47 @@ const Sidebar = () => {
   ========================= */
 
   const checkAcademyAccess = useCallback(async () => {
-    if (!user) return false;
-
-    if (normalizeRole(user.role) === 'admin') return setHasAcademyAccess(true);
-    if (user.isAcademyStaff === true) return setHasAcademyAccess(true);
-    if (Array.isArray(user.academyPermissions) && user.academyPermissions.length > 0) {
-      return setHasAcademyAccess(true);
+    if (!user) {
+      setHasAcademyAccess(false);
+      return;
     }
-    if (user.isAcademyDepartmentHead === true) return setHasAcademyAccess(true);
-    if (normalizeRole(user.role) === 'instructor') return setHasAcademyAccess(true);
 
-    const academyAllowlistEmails = ['fwallace@prinstinegroup.org'];
-    if (academyAllowlistEmails.includes(user.email?.toLowerCase().trim())) {
-      return setHasAcademyAccess(true);
+    const role = normalizeRole(user.role);
+    if (role === 'admin' || role === 'instructor') {
+      setHasAcademyAccess(true);
+      return;
+    }
+
+    if (hasAnyAcademyPermission(user)) {
+      setHasAcademyAccess(true);
+      return;
     }
 
     try {
-      if (normalizeRole(user.role) === 'departmenthead') {
-        const res = await api.get('/departments');
-        const dept = res.data.departments.find(d =>
-          (d.manager_id === user.id ||
-            (d.head_email && d.head_email.toLowerCase().trim() === user.email.toLowerCase().trim())) &&
-          d.name?.toLowerCase().match(/academy|elearning|e-learning|marketing/)
-        );
-        if (dept) return setHasAcademyAccess(true);
-      }
-
-      if (normalizeRole(user.role) === 'staff') {
-        const res = await api.get('/staff');
-        const me = res.data.staff.find(s => s.user_id === user.id);
-        if (
-          me?.department?.toLowerCase().match(/academy|elearning|e-learning/) ||
-          me?.position?.toLowerCase().includes('academy')
-        ) {
-          return setHasAcademyAccess(true);
-        }
+      const res = await api.get('/academy/permissions/me');
+      const data = res.data || {};
+      if (data.hasAccess) {
+        setHasAcademyAccess(true);
+        updateUser({
+          ...user,
+          academyPermissions: data.academyPermissions || [],
+          isAcademyDepartmentHead: !!data.isAcademyDepartmentHead,
+          isAcademyStaff: !!data.isAcademyStaff
+        });
+        return;
       }
     } catch (err) {
-      console.error('Academy access check failed:', err);
+      console.error('Academy permissions check failed:', err);
+    }
+
+    const academyAllowlistEmails = ['fwallace@prinstinegroup.org'];
+    if (academyAllowlistEmails.includes(user.email?.toLowerCase().trim())) {
+      setHasAcademyAccess(true);
+      return;
     }
 
     setHasAcademyAccess(false);
-  }, [user]);
+  }, [user, updateUser]);
 
   /* =========================
      FINANCE ACCESS CHECK

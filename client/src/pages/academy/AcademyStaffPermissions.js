@@ -65,7 +65,7 @@ const AcademyStaffPermissions = () => {
       await api.put(`/academy/permissions/user/${selectedUserId}`, {
         permissions: selectedPerms
       });
-      setMessage('Permissions saved. Staff must log out and back in to refresh their menu.');
+      setMessage('Permissions saved. The user will see Academy in the sidebar after they refresh the page or log in again.');
       const staffRes = await api.get('/academy/permissions/staff');
       setStaffList(staffRes.data?.staff || []);
     } catch (err) {
