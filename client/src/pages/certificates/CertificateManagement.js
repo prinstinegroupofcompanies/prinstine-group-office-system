@@ -3,10 +3,13 @@ import api from '../../config/api';
 import CertificateForm from './CertificateForm';
 import CertificateView from './CertificateView';
 import { useAuth } from '../../hooks/useAuth';
+import { canManageAcademySection } from '../../utils/academyPermissions';
 import { saveCertificateAxiosBlob } from '../../utils/certificateDownload';
 
 const CertificateManagement = ({ embedded = false }) => {
   const { user } = useAuth();
+  const canManageCerts = user && canManageAcademySection(user, 'certificates');
+  const canManageCohorts = user && canManageAcademySection(user, 'cohorts');
   const [certificates, setCertificates] = useState([]);
   const [cohorts, setCohorts] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -19,10 +22,13 @@ const CertificateManagement = ({ embedded = false }) => {
 
   useEffect(() => {
     fetchCertificates();
-    if (user?.role === 'Admin') {
+  }, []);
+
+  useEffect(() => {
+    if (canManageCohorts) {
       fetchCohorts();
     }
-  }, []);
+  }, [canManageCohorts]);
 
   useEffect(() => {
     if (searchQuery) {
@@ -149,9 +155,11 @@ const CertificateManagement = ({ embedded = false }) => {
       <div className="row mb-4">
         <div className="col-12 d-flex justify-content-between align-items-center">
           {!embedded && <h1 className="h3 mb-0">Certificate Management</h1>}
-          <button className="btn btn-primary" onClick={handleAdd}>
-            <i className="bi bi-plus-circle me-2"></i>Add Certificate
-          </button>
+          {canManageCerts && (
+            <button className="btn btn-primary" onClick={handleAdd}>
+              <i className="bi bi-plus-circle me-2"></i>Add Certificate
+            </button>
+          )}
         </div>
       </div>
 
@@ -183,7 +191,7 @@ const CertificateManagement = ({ embedded = false }) => {
       </div>
 
       {/* Certificate verification window controls */}
-      {user?.role === 'Admin' && (
+      {canManageCohorts && (
         <div className="card mb-3">
           <div className="card-header d-flex justify-content-between align-items-center">
             <strong>Certificate Verification Window (Per Cohort)</strong>
@@ -319,12 +327,16 @@ const CertificateManagement = ({ embedded = false }) => {
                         <button className="btn btn-sm btn-outline-secondary me-2" onClick={() => handleDownload(certificate, 'png')}>
                           <i className="bi bi-download me-1"></i>Image
                         </button>
-                        <button className="btn btn-sm btn-outline-primary me-2" onClick={() => handleEdit(certificate)}>
-                          <i className="bi bi-pencil me-1"></i>Edit
-                        </button>
-                        <button className="btn btn-sm btn-outline-danger" onClick={() => handleDelete(certificate.id)}>
-                          <i className="bi bi-trash me-1"></i>Delete
-                        </button>
+                        {canManageCerts && (
+                          <>
+                            <button className="btn btn-sm btn-outline-primary me-2" onClick={() => handleEdit(certificate)}>
+                              <i className="bi bi-pencil me-1"></i>Edit
+                            </button>
+                            <button className="btn btn-sm btn-outline-danger" onClick={() => handleDelete(certificate.id)}>
+                              <i className="bi bi-trash me-1"></i>Delete
+                            </button>
+                          </>
+                        )}
                       </td>
                     </tr>
                   ))

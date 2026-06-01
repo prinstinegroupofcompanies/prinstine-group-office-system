@@ -10,7 +10,7 @@ const StudentAcademyGradesTab = ({
   cohorts = [],
   courses = [],
   students = [],
-  isAdmin = false
+  canManageGrades = false
 }) => {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -338,13 +338,13 @@ const StudentAcademyGradesTab = ({
                   Approved {sortKey === 'approved_at' ? (sortDir === 'asc' ? '↑' : '↓') : ''}
                 </th>
                 <th>Gradesheet</th>
-                {isAdmin && <th>Actions</th>}
+                {canManageGrades && <th>Actions</th>}
               </tr>
             </thead>
             <tbody>
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={isAdmin ? 7 : 6} className="text-muted text-center py-4">
+                  <td colSpan={canManageGrades ? 7 : 6} className="text-muted text-center py-4">
                     No approved grades match the current filters.
                   </td>
                 </tr>
@@ -392,7 +392,7 @@ const StudentAcademyGradesTab = ({
                         </button>
                       </div>
                     </td>
-                    {isAdmin && (
+                    {canManageGrades && (
                       <td>
                         <div className="btn-group btn-group-sm flex-wrap">
                           <button type="button" className="btn btn-outline-primary" onClick={() => openApprovedEdit(g)}>
@@ -410,7 +410,7 @@ const StudentAcademyGradesTab = ({
             </tbody>
           </table>
         </div>
-        {approvedEditRow && isAdmin && (
+        {approvedEditRow && canManageGrades && (
           <div className="modal d-block" style={{ background: 'rgba(0,0,0,0.5)' }} tabIndex={-1}>
             <div className="modal-dialog modal-dialog-centered modal-lg">
               <div className="modal-content">

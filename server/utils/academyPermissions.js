@@ -169,6 +169,40 @@ async function assertAcademyPermission(user, permissionKey) {
   }
 }
 
+const MANAGE_RESOURCE_KEYS = {
+  students: 'students:manage',
+  courses: 'courses:manage',
+  instructors: 'instructors:manage',
+  cohorts: 'cohorts:manage',
+  grades: 'grades:manage',
+  certificates: 'certificates:manage'
+};
+
+/** Admin, academy department head, or explicit *:manage permission */
+async function canAcademyManageResource(user, resource) {
+  if (!user || !resource) return false;
+  if (user.role === 'Admin') return true;
+  if (await isAcademyDepartmentHead(user)) return true;
+  const permKey = MANAGE_RESOURCE_KEYS[resource];
+  if (!permKey) return false;
+  return hasAcademyPermission(user, permKey);
+}
+
+function requireAcademyManage(resource) {
+  return async (req, res, next) => {
+    try {
+      if (!(await canAcademyManageResource(req.user, resource))) {
+        return res.status(403).json({
+          error: `You do not have permission to manage academy ${resource}`
+        });
+      }
+      next();
+    } catch (e) {
+      next(e);
+    }
+  };
+}
+
 async function listAcademyStaffForPermissions() {
   const rows = await db.all(
     `SELECT u.id AS user_id, u.name, u.email, u.role, u.is_active,
@@ -235,5 +269,8 @@ module.exports = {
   assertAcademyPermission,
   listAcademyStaffForPermissions,
   setStaffAcademyPermissions,
-  isLegacyAcademyStaffByDept
+  isLegacyAcademyStaffByDept,
+  MANAGE_RESOURCE_KEYS,
+  canAcademyManageResource,
+  requireAcademyManage
 };

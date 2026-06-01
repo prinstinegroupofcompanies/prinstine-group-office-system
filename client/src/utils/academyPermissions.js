@@ -25,6 +25,7 @@ export function getUserAcademyPermissions(user) {
 export function hasAcademyPermission(user, key) {
   if (!user || !key) return false;
   if (user.role === 'Admin') return true;
+  if (user.isAcademyDepartmentHead === true && key !== 'grades:final_approve') return true;
   return getUserAcademyPermissions(user).includes(key);
 }
 
@@ -48,6 +49,9 @@ export function canViewAcademyTab(user, tabKey) {
 }
 
 export function canManageAcademySection(user, section) {
+  if (!user || !section) return false;
+  if (user.role === 'Admin') return true;
+  if (user.isAcademyDepartmentHead === true) return true;
   const map = {
     courses: 'courses:manage',
     students: 'students:manage',

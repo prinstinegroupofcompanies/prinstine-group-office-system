@@ -89,30 +89,15 @@ async function isAcademyTeam(user) {
   if (!user) return false;
   if (user.role === 'Admin') return true;
   if (user.role === 'Instructor') return true;
-  if (user.role === 'DepartmentHead') {
-    try {
-      const dept = await db.get('SELECT name FROM departments WHERE manager_id = ?', [user.id]);
-      const deptName = String(dept?.name || '').toLowerCase();
-      return deptName.includes('academy') || deptName.includes('elearning') || deptName.includes('e-learning');
-    } catch (_err) {
-      return false;
-    }
-  }
-  if (user.role === 'Staff') {
-    try {
-      const staff = await db.get('SELECT department, position FROM staff WHERE user_id = ?', [user.id]);
-      const deptName = String(staff?.department || '').toLowerCase();
-      const positionName = String(staff?.position || '').toLowerCase();
-      return (
-        deptName.includes('academy') ||
-        deptName.includes('elearning') ||
-        deptName.includes('e-learning') ||
-        (positionName.includes('academy') && positionName.includes('coordinator'))
-      );
-    } catch (_err) {
-      return false;
-    }
-  }
+  const {
+    isAcademyDepartmentHead,
+    hasAcademyPermission,
+    canAcademyManageResource
+  } = require('../utils/academyPermissions');
+  if (await isAcademyDepartmentHead(user)) return true;
+  if (await hasAcademyPermission(user, 'certificates:view')) return true;
+  if (await hasAcademyPermission(user, 'certificates:manage')) return true;
+  if (await canAcademyManageResource(user, 'certificates')) return true;
   return false;
 }
 
@@ -342,9 +327,9 @@ router.post('/', authenticateToken, requireRole('Admin', 'Staff', 'Instructor', 
   body('course_id').isInt().withMessage('Course ID is required')
 ], async (req, res) => {
   try {
-    const hasAccess = await isAcademyTeam(req.user);
-    if (!hasAccess) {
-      return res.status(403).json({ error: 'Only Academy team and Admin can create certificates' });
+    const { canAcademyManageResource } = require('../utils/academyPermissions');
+    if (!(await canAcademyManageResource(req.user, 'certificates'))) {
+      return res.status(403).json({ error: 'You do not have permission to create certificates' });
     }
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -464,9 +449,9 @@ router.post('/', authenticateToken, requireRole('Admin', 'Staff', 'Instructor', 
 // Update certificate (Admin + Academy team)
 router.put('/:id', authenticateToken, requireRole('Admin', 'Staff', 'Instructor', 'DepartmentHead'), handleCertificateUpload, async (req, res) => {
   try {
-    const hasAccess = await isAcademyTeam(req.user);
-    if (!hasAccess) {
-      return res.status(403).json({ error: 'Only Academy team and Admin can edit certificates' });
+    const { canAcademyManageResource } = require('../utils/academyPermissions');
+    if (!(await canAcademyManageResource(req.user, 'certificates'))) {
+      return res.status(403).json({ error: 'You do not have permission to edit certificates' });
     }
     const certificateId = req.params.id;
     const { grade, issue_date, completion_date } = req.body;
@@ -556,9 +541,9 @@ router.put('/:id', authenticateToken, requireRole('Admin', 'Staff', 'Instructor'
 // Delete certificate (Admin + Academy team)
 router.delete('/:id', authenticateToken, requireRole('Admin', 'Staff', 'Instructor', 'DepartmentHead'), async (req, res) => {
   try {
-    const hasAccess = await isAcademyTeam(req.user);
-    if (!hasAccess) {
-      return res.status(403).json({ error: 'Only Academy team and Admin can delete certificates' });
+    const { canAcademyManageResource } = require('../utils/academyPermissions');
+    if (!(await canAcademyManageResource(req.user, 'certificates'))) {
+      return res.status(403).json({ error: 'You do not have permission to delete certificates' });
     }
     const certificateId = req.params.id;
 

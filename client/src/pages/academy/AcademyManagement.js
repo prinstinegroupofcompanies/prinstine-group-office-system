@@ -92,6 +92,7 @@ const AcademyManagement = () => {
   const canApproveStudentRecords = user && canApproveStudents(user);
   const canApproveInstructorRecords = user && canApproveInstructors(user);
   const canApproveFees = user && canApproveCourseFees(user);
+  const canManageGrades = user && canManageAcademySection(user, 'grades');
 
   const displayStudents = useMemo(() => {
     const list = [...(students || [])];
@@ -831,7 +832,7 @@ const AcademyManagement = () => {
                           <Link to={`/academy/courses/view/${course.id}`} className="btn btn-sm btn-outline-info me-2">
                             <i className="bi bi-eye me-1"></i>View
                           </Link>
-                          {userIsAcademyStaff && (
+                          {canManageAcademySection(user, 'courses') && (
                             <>
                               <button className="btn btn-sm btn-outline-primary me-2" onClick={() => handleEditCourse(course)}>
                                 <i className="bi bi-pencil me-1"></i>Edit
@@ -1260,7 +1261,7 @@ const AcademyManagement = () => {
                           <Link to={`/academy/instructors/view/${instructor.id}`} className="btn btn-sm btn-outline-info me-2">
                             <i className="bi bi-eye me-1"></i>View
                           </Link>
-                          {userIsAcademyStaff && (
+                          {canManageAcademySection(user, 'instructors') && (
                             <>
                               <button className="btn btn-sm btn-outline-primary me-2" onClick={() => handleEditInstructor(instructor)}>
                                 <i className="bi bi-pencil me-1"></i>Edit
@@ -1376,7 +1377,7 @@ const AcademyManagement = () => {
                           </span>
                         </td>
                         <td>
-                          {userIsAcademyStaff && (
+                          {canManageAcademySection(user, 'cohorts') && (
                             <>
                               <button className="btn btn-sm btn-outline-primary me-2" onClick={() => handleEditCohort(cohort)}>
                                 <i className="bi bi-pencil me-1"></i>Edit
@@ -1531,12 +1532,14 @@ const AcademyManagement = () => {
                               </td>
                               <td>
                                 <div className="d-flex flex-wrap gap-1">
-                                  {canFinalApprove && (
+                                  {canManageGrades && (
                                     <>
                                       <button type="button" className="btn btn-sm btn-outline-primary" onClick={() => openPendingGradeEdit(g)}>Edit</button>
                                       <button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => deletePendingGrade(g)}>Delete</button>
-                                      <button type="button" className="btn btn-sm btn-success" onClick={() => { setGradeActionId(g.id); setGradeActionMode('approve'); setGradeNotes(''); }}>Final approve</button>
                                     </>
+                                  )}
+                                  {canFinalApprove && (
+                                    <button type="button" className="btn btn-sm btn-success" onClick={() => { setGradeActionId(g.id); setGradeActionMode('approve'); setGradeNotes(''); }}>Final approve</button>
                                   )}
                                   {canEndorse && !g.endorsed_by && (
                                     <button type="button" className="btn btn-sm btn-outline-info" onClick={() => { setGradeActionId(g.id); setGradeActionMode('endorse'); setGradeNotes(''); }}>Endorse</button>
@@ -1585,7 +1588,7 @@ const AcademyManagement = () => {
                   </div>
                 </div>
               )}
-              {pendingEditRow && canFinalApprove && (
+              {pendingEditRow && canManageGrades && (
                 <div className="modal d-block" style={{ background: 'rgba(0,0,0,0.5)' }} tabIndex={-1}>
                   <div className="modal-dialog modal-dialog-centered modal-lg">
                     <div className="modal-content">
@@ -1654,7 +1657,7 @@ const AcademyManagement = () => {
           cohorts={cohorts}
           courses={courses}
           students={studentsForSelect}
-          isAdmin={canFinalApprove}
+          canManageGrades={canManageGrades}
         />
       )}
 

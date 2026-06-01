@@ -16,7 +16,9 @@ const {
 } = require('../utils/academyIds');
 const {
   hasAcademyPermission,
-  hasAnyAcademyPermission
+  hasAnyAcademyPermission,
+  canAcademyManageResource,
+  requireAcademyManage
 } = require('../utils/academyPermissions');
 
 router.use('/permissions', require('./academyPermissions'));
@@ -836,15 +838,17 @@ router.put('/students/:id', authenticateToken, requireRole('Admin', 'Instructor'
       return res.status(404).json({ error: 'Student not found' });
     }
 
-    // Check if user is Academy staff or Admin
-    const academyStaff = await isAcademyStaff(req.user);
-    if (!academyStaff && req.user.role !== 'Admin') {
-      return res.status(403).json({ error: 'Only Academy staff and Admins can edit students' });
+    if (!(await canAcademyManageResource(req.user, 'students'))) {
+      return res.status(403).json({ error: 'You do not have permission to edit students' });
     }
-    
-    // Only Admin can change approved status
-    if (updates.approved !== undefined && req.user.role !== 'Admin') {
-      return res.status(403).json({ error: 'Only Admin can approve/reject students' });
+
+    if (updates.approved !== undefined) {
+      const canApprove =
+        req.user.role === 'Admin' ||
+        (await hasAcademyPermission(req.user, 'approve:students'));
+      if (!canApprove) {
+        return res.status(403).json({ error: 'You do not have permission to change student approval status' });
+      }
     }
 
     // Update user info if provided (profile_image stored permanently in users table)
@@ -997,7 +1001,7 @@ router.put('/students/:id', authenticateToken, requireRole('Admin', 'Instructor'
 });
 
 // Delete student
-router.delete('/students/:id', authenticateToken, requireRole('Admin'), async (req, res) => {
+router.delete('/students/:id', authenticateToken, requireAcademyManage('students'), async (req, res) => {
   try {
     const studentId = req.params.id;
 
@@ -1138,15 +1142,17 @@ router.put('/instructors/:id', authenticateToken, requireRole('Admin', 'Departme
       return res.status(404).json({ error: 'Instructor not found' });
     }
 
-    // Check if user is Academy staff or Admin
-    const academyStaff = await isAcademyStaff(req.user);
-    if (!academyStaff && req.user.role !== 'Admin') {
-      return res.status(403).json({ error: 'Only Academy staff and Admins can edit instructors' });
+    if (!(await canAcademyManageResource(req.user, 'instructors'))) {
+      return res.status(403).json({ error: 'You do not have permission to edit instructors' });
     }
-    
-    // Only Admin can change approved status
-    if (updates.approved !== undefined && req.user.role !== 'Admin') {
-      return res.status(403).json({ error: 'Only Admin can approve/reject instructors' });
+
+    if (updates.approved !== undefined) {
+      const canApprove =
+        req.user.role === 'Admin' ||
+        (await hasAcademyPermission(req.user, 'approve:instructors'));
+      if (!canApprove) {
+        return res.status(403).json({ error: 'You do not have permission to change instructor approval status' });
+      }
     }
 
     // Update user info if provided
@@ -1222,7 +1228,7 @@ router.get('/instructors/:id', authenticateToken, async (req, res) => {
 });
 
 // Delete instructor
-router.delete('/instructors/:id', authenticateToken, requireRole('Admin'), async (req, res) => {
+router.delete('/instructors/:id', authenticateToken, requireAcademyManage('instructors'), async (req, res) => {
   try {
     const instructorId = req.params.id;
 
@@ -1382,15 +1388,21 @@ router.put('/courses/:id', authenticateToken, requireRole('Admin', 'Instructor',
       return res.status(404).json({ error: 'Course not found' });
     }
 
-    // Check if user is Academy staff or Admin
-    const academyStaff = await isAcademyStaff(req.user);
-    if (!academyStaff && req.user.role !== 'Admin' && req.user.role !== 'Instructor') {
-      return res.status(403).json({ error: 'Only Academy staff, Instructors, and Admins can edit courses' });
+    const canEditCourse =
+      req.user.role === 'Admin' ||
+      req.user.role === 'Instructor' ||
+      (await canAcademyManageResource(req.user, 'courses'));
+    if (!canEditCourse) {
+      return res.status(403).json({ error: 'You do not have permission to edit courses' });
     }
-    
-    // Only Admin can change fee_approved status
-    if (updates.fee_approved !== undefined && req.user.role !== 'Admin') {
-      return res.status(403).json({ error: 'Only Admin can approve/reject course fees' });
+
+    if (updates.fee_approved !== undefined) {
+      const canApproveFees =
+        req.user.role === 'Admin' ||
+        (await hasAcademyPermission(req.user, 'approve:course_fees'));
+      if (!canApproveFees) {
+        return res.status(403).json({ error: 'You do not have permission to change course fee approval' });
+      }
     }
 
     // Check if course code is being changed and conflicts
@@ -1432,7 +1444,7 @@ router.put('/courses/:id', authenticateToken, requireRole('Admin', 'Instructor',
 });
 
 // Delete course
-router.delete('/courses/:id', authenticateToken, requireRole('Admin'), async (req, res) => {
+router.delete('/courses/:id', authenticateToken, requireAcademyManage('courses'), async (req, res) => {
   try {
     const courseId = req.params.id;
 
@@ -1903,8 +1915,8 @@ router.put('/grades/:id/reject', authenticateToken, async (req, res, next) => {
   }
 });
 
-// PUT /api/academy/grades/:id (Admin — edit pending or approved submission)
-router.put('/grades/:id', authenticateToken, requireRole('Admin'), [
+// PUT /api/academy/grades/:id — edit pending or approved submission
+router.put('/grades/:id', authenticateToken, requireAcademyManage('grades'), [
   body('proposed_grade').trim().notEmpty().withMessage('proposed_grade is required'),
   body('student_id').optional().isInt(),
   body('course_id').optional().isInt()
@@ -1983,8 +1995,8 @@ router.put('/grades/:id', authenticateToken, requireRole('Admin'), [
   }
 });
 
-// DELETE /api/academy/grades/:id (Admin — delete pending or approved submission)
-router.delete('/grades/:id', authenticateToken, requireRole('Admin'), async (req, res) => {
+// DELETE /api/academy/grades/:id
+router.delete('/grades/:id', authenticateToken, requireAcademyManage('grades'), async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
     if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
@@ -2010,7 +2022,7 @@ router.delete('/grades/:id', authenticateToken, requireRole('Admin'), async (req
 
 // ========== ADMIN APPROVAL ENDPOINTS ==========
 
-// Approve/reject course fee (Admin only)
+// Approve/reject course fee — Admin or approve:course_fees permission
 router.put('/courses/:id/approve-fee', authenticateToken, async (req, res, next) => {
   try {
     const can =
@@ -2056,7 +2068,7 @@ router.put('/courses/:id/approve-fee', authenticateToken, async (req, res, next)
   }
 });
 
-// Approve/reject instructor (Admin only)
+// Approve/reject instructor — Admin or approve:instructors permission
 router.put('/instructors/:id/approve', authenticateToken, async (req, res, next) => {
   try {
     const can =
@@ -2256,10 +2268,8 @@ router.put('/cohorts/:id', authenticateToken, requireRole('Admin', 'Instructor',
       return res.status(404).json({ error: 'Cohort not found' });
     }
 
-    // Check if user is Academy staff or Admin
-    const academyStaff = await isAcademyStaff(req.user);
-    if (!academyStaff && req.user.role !== 'Admin') {
-      return res.status(403).json({ error: 'Only Academy staff and Admins can edit cohorts' });
+    if (!(await canAcademyManageResource(req.user, 'cohorts'))) {
+      return res.status(403).json({ error: 'You do not have permission to edit cohorts' });
     }
 
     const allowedUpdates = [
@@ -2323,10 +2333,8 @@ router.delete('/cohorts/:id', authenticateToken, requireRole('Admin', 'Instructo
       return res.status(404).json({ error: 'Cohort not found' });
     }
 
-    // Check if user is Academy staff or Admin
-    const academyStaff = await isAcademyStaff(req.user);
-    if (!academyStaff && req.user.role !== 'Admin') {
-      return res.status(403).json({ error: 'Only Academy staff and Admins can delete cohorts' });
+    if (!(await canAcademyManageResource(req.user, 'cohorts'))) {
+      return res.status(403).json({ error: 'You do not have permission to delete cohorts' });
     }
 
     // Check if cohort has students
