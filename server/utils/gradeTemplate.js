@@ -21,6 +21,7 @@ function parseScore(value) {
   return n;
 }
 
+/** A: 90–100 | B: 80–89 | C: 70–79 | D: 60–69 | I: 50–59 and below 50 */
 function computeLetterGrade(average) {
   const a = Number(average);
   if (Number.isNaN(a)) return '';
@@ -28,7 +29,7 @@ function computeLetterGrade(average) {
   if (a >= 80) return 'B';
   if (a >= 70) return 'C';
   if (a >= 60) return 'D';
-  return 'F';
+  return 'I';
 }
 
 function extractScoresFromBody(body) {

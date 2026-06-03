@@ -72,7 +72,7 @@ const GradeTemplateForm = ({
         </table>
       </div>
       <p className="text-muted small mb-0">
-        Enter scores for each component. Average and letter grade are calculated automatically (A: 90–100, B: 80–89, C: 70–79, D: 60–69, F: below 60).
+        Enter scores for each component. Average and letter grade are calculated automatically (A: 90–100, B: 80–89, C: 70–79, D: 60–69, I: 50–59 and below 50).
       </p>
     </div>
   );

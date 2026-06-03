@@ -89,9 +89,9 @@ const AcademyStaffPermissions = () => {
         <h5 className="card-title">Academy permissions</h5>
         <p className="text-muted small">
           Assign permissions to any <strong>Staff</strong> or <strong>Department Head</strong>. Users only
-          see Academy menu items and actions for permissions you select. Academy department heads automatically
-          receive full access (except Admin final grade approval). Others need explicit assignments and must
-          log out/in after changes.
+          see Academy menu items and actions for permissions you select. Only the <strong>Academy</strong> department
+          head receives full access automatically (except Admin final grade approval). Other department heads
+          (e.g. Marketing, Finance) need explicit assignments here and must log out/in after changes.
         </p>
         {error && <div className="alert alert-danger">{error}</div>}
         {message && <div className="alert alert-success">{message}</div>}

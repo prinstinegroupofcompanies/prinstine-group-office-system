@@ -36,6 +36,9 @@ const ACADEMY_COORDINATOR_EMAILS = [
 ];
 const ACADEMY_HEAD_EMAILS = ['fwallace@prinstinegroup.org'];
 
+/** Department names that qualify as Academy (Marketing is separate — not included). */
+const ACADEMY_DEPARTMENT_PATTERN = /academy|elearning|e-learning/i;
+
 function normalizeEmail(email) {
   return (email || '').toLowerCase().trim();
 }
@@ -56,7 +59,7 @@ async function getManagedAcademyDepartments(user) {
           [user.id, userEmail]
         )
       : await db.all('SELECT name FROM departments WHERE manager_id = ?', [user.id]);
-    const academyMatch = /academy|elearning|e-learning|marketing/i;
+    const academyMatch = ACADEMY_DEPARTMENT_PATTERN;
     return (rows || []).filter((d) => d?.name && academyMatch.test(d.name));
   } catch (_e) {
     return [];
@@ -67,7 +70,6 @@ async function isAcademyDepartmentHead(user) {
   if (!user) return false;
   if (user.role === 'Admin') return false;
   if (user.role !== 'DepartmentHead') return false;
-  if (user.academyAccess === true) return true;
   if (ACADEMY_HEAD_EMAILS.includes(normalizeEmail(user.email))) return true;
   const depts = await getManagedAcademyDepartments(user);
   return depts.length > 0;
@@ -259,6 +261,8 @@ module.exports = {
   ALL_PERMISSION_KEYS,
   DEPT_HEAD_PERMISSION_KEYS,
   ASSIGNABLE_TO_STAFF_KEYS,
+  ACADEMY_DEPARTMENT_PATTERN,
+  ACADEMY_HEAD_EMAILS,
   isAcademyDepartmentHead,
   getStoredPermissionsForUser,
   resolveAcademyPermissions,

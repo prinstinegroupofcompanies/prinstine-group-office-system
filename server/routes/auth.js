@@ -6,7 +6,7 @@ const { hashPassword, comparePassword, generateToken, authenticateToken } = requ
 const { logAction } = require('../utils/audit');
 const { sendOTP, sendPasswordReset } = require('../utils/email');
 const { normalizeProfileImage } = require('../utils/normalizeProfileImage');
-const { attachAcademyContext } = require('../utils/academyPermissions');
+const { attachAcademyContext, ACADEMY_DEPARTMENT_PATTERN, ACADEMY_HEAD_EMAILS } = require('../utils/academyPermissions');
 const crypto = require('crypto');
 
 // Generate OTP
@@ -146,7 +146,7 @@ router.post('/login', [
       }
       if (depts?.length) {
         userResponse.department = depts[0].name || null;
-        userResponse.academyAccess = depts.some((d) => /academy|elearning|e-learning|marketing/i.test(d.name || ''));
+        userResponse.academyAccess = depts.some((d) => ACADEMY_DEPARTMENT_PATTERN.test(d.name || ''));
       }
     }
     userResponse = await attachAcademyContext(userResponse);
@@ -208,8 +208,7 @@ router.get('/me', authenticateToken, async (req, res) => {
     // For DepartmentHead users, get all departments they manage and set academyAccess
     if (user.role === 'DepartmentHead') {
       const userEmail = (user.email || '').toLowerCase().trim();
-      const academyHeadEmails = ['fwallace@prinstinegroup.org'];
-      if (academyHeadEmails.includes(userEmail)) {
+      if (ACADEMY_HEAD_EMAILS.includes(userEmail)) {
         user.academyAccess = true;
       }
       let depts = [];
@@ -231,8 +230,7 @@ router.get('/me', authenticateToken, async (req, res) => {
       if (Array.isArray(depts) && depts.length > 0) {
         user.department = depts[0].name || null;
         if (!user.academyAccess) {
-          const academyMatch = /academy|elearning|e-learning|marketing/i;
-          user.academyAccess = depts.some(d => d && d.name && academyMatch.test(d.name));
+          user.academyAccess = depts.some((d) => d?.name && ACADEMY_DEPARTMENT_PATTERN.test(d.name));
         }
       }
     }
