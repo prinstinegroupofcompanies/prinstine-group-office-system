@@ -2,6 +2,12 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../../config/api';
 import { useAuth } from '../../hooks/useAuth';
+import GradeTemplateForm from '../../components/academy/GradeTemplateForm';
+import {
+  EMPTY_GRADE_SCORES,
+  buildGradeSubmitPayload,
+  validateScoresForSubmit
+} from '../../utils/gradeTemplate';
 import './InstructorDashboard.css';
 
 const PLATFORMS = ['Zoom', 'Google Meet', 'Microsoft Teams', 'Other'];
@@ -28,7 +34,7 @@ const InstructorDashboard = () => {
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
 
-  const [gradeForm, setGradeForm] = useState({ student_id: '', course_id: '', proposed_grade: '' });
+  const [gradeForm, setGradeForm] = useState({ student_id: '', course_id: '', scores: { ...EMPTY_GRADE_SCORES } });
   const [gradeSubmitting, setGradeSubmitting] = useState(false);
 
   const [linkForm, setLinkForm] = useState({ course_id: '', title: '', link_url: '', platform: 'Zoom' });
@@ -116,14 +122,28 @@ const InstructorDashboard = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, attendanceCourseId, attendanceDate]);
 
+  const selectedStudent = useMemo(
+    () => studentsForCourse.find((s) => String(s.id) === String(gradeForm.student_id)),
+    [studentsForCourse, gradeForm.student_id]
+  );
+
   const handleGradeSubmit = async (e) => {
     e.preventDefault();
+    if (!gradeForm.student_id || !gradeForm.course_id) return;
+    const validationErrors = validateScoresForSubmit(gradeForm.scores);
+    if (validationErrors.length) {
+      alert(validationErrors.join('\n'));
+      return;
+    }
     setGradeSubmitting(true);
     setMessage('');
     try {
-      await api.post('/academy/instructor-portal/me/grades/submit', gradeForm);
+      await api.post(
+        '/academy/instructor-portal/me/grades/submit',
+        buildGradeSubmitPayload(gradeForm.student_id, gradeForm.course_id, gradeForm.scores)
+      );
       setMessage('Grade submitted for coordinator review.');
-      setGradeForm({ student_id: '', course_id: '', proposed_grade: '' });
+      setGradeForm({ student_id: '', course_id: '', scores: { ...EMPTY_GRADE_SCORES } });
       await loadCore();
       setActiveTab('grades');
     } catch (err) {
@@ -350,52 +370,65 @@ const InstructorDashboard = () => {
 
       {activeTab === 'grades' && (
         <div className="row g-3">
-          <div className="col-lg-5">
-            <div className="card"><div className="card-header fw-bold">Submit grade</div><div className="card-body">
+          <div className="col-12">
+            <div className="card"><div className="card-header fw-bold">Submit grade (standard template)</div><div className="card-body">
               <form onSubmit={handleGradeSubmit}>
-                <div className="mb-3">
-                  <label className="form-label">Course</label>
-                  <select className="form-select" required value={gradeForm.course_id}
-                    onChange={(e) => setGradeForm((f) => ({ ...f, course_id: e.target.value, student_id: '' }))}
-                    disabled={isPending}>
-                    <option value="">Select course</option>
-                    {courses.map((c) => <option key={c.id} value={c.id}>{c.course_code} — {c.title}</option>)}
-                  </select>
+                <div className="row g-3 mb-3">
+                  <div className="col-md-6">
+                    <label className="form-label">Course</label>
+                    <select className="form-select" required value={gradeForm.course_id}
+                      onChange={(e) => setGradeForm((f) => ({ ...f, course_id: e.target.value, student_id: '' }))}
+                      disabled={isPending}>
+                      <option value="">Select course</option>
+                      {courses.map((c) => <option key={c.id} value={c.id}>{c.course_code} — {c.title}</option>)}
+                    </select>
+                  </div>
+                  <div className="col-md-6">
+                    <label className="form-label">Student</label>
+                    <select className="form-select" required value={gradeForm.student_id}
+                      onChange={(e) => setGradeForm((f) => ({ ...f, student_id: e.target.value }))}
+                      disabled={!gradeForm.course_id || isPending}>
+                      <option value="">Select student</option>
+                      {studentsForCourse.map((s) => (
+                        <option key={s.id} value={s.id}>{s.name} ({s.student_code})</option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
-                <div className="mb-3">
-                  <label className="form-label">Student</label>
-                  <select className="form-select" required value={gradeForm.student_id}
-                    onChange={(e) => setGradeForm((f) => ({ ...f, student_id: e.target.value }))}
-                    disabled={!gradeForm.course_id || isPending}>
-                    <option value="">Select student</option>
-                    {studentsForCourse.map((s) => (
-                      <option key={s.id} value={s.id}>{s.name} ({s.student_code})</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="mb-3">
-                  <label className="form-label">Grade</label>
-                  <input className="form-control" required placeholder="e.g. A, B+, 85"
-                    value={gradeForm.proposed_grade}
-                    onChange={(e) => setGradeForm((f) => ({ ...f, proposed_grade: e.target.value }))}
-                    disabled={isPending} />
-                </div>
-                <button type="submit" className="btn btn-primary w-100" disabled={gradeSubmitting || isPending}>
+                <GradeTemplateForm
+                  scores={gradeForm.scores}
+                  onChange={(scores) => setGradeForm((f) => ({ ...f, scores }))}
+                  disabled={isPending || !gradeForm.student_id}
+                  showStudentInfo
+                  studentName={selectedStudent?.name}
+                  studentCode={selectedStudent?.student_code}
+                />
+                <button type="submit" className="btn btn-primary mt-3" disabled={gradeSubmitting || isPending || !gradeForm.student_id}>
                   {gradeSubmitting ? 'Submitting…' : 'Submit for coordinator review'}
                 </button>
               </form>
             </div></div>
           </div>
-          <div className="col-lg-7">
+          <div className="col-12">
             <div className="card"><div className="card-header fw-bold">Your submissions</div><div className="card-body table-responsive">
               <table className="table table-sm mb-0">
-                <thead><tr><th>Student</th><th>Course</th><th>Grade</th><th>Status</th></tr></thead>
+                <thead>
+                  <tr>
+                    <th>Student</th><th>Course</th>
+                    <th>Asgn</th><th>Att</th><th>Pres</th><th>Assess</th><th>Proj</th><th>Exam</th>
+                    <th>Avg</th><th>Letter</th><th>Status</th>
+                  </tr>
+                </thead>
                 <tbody>
                   {submissions.length === 0 ? (
-                    <tr><td colSpan={4} className="text-muted">No submissions yet.</td></tr>
+                    <tr><td colSpan={11} className="text-muted">No submissions yet.</td></tr>
                   ) : submissions.map((g) => (
                     <tr key={g.id}>
-                      <td>{g.student_name}</td><td>{g.course_code}</td><td><strong>{g.proposed_grade}</strong></td>
+                      <td>{g.student_name}</td><td>{g.course_code}</td>
+                      <td>{g.score_assignment ?? '—'}</td><td>{g.score_attendance ?? '—'}</td>
+                      <td>{g.score_presentation ?? '—'}</td><td>{g.score_assessment ?? '—'}</td>
+                      <td>{g.score_project ?? '—'}</td><td>{g.score_final_exam ?? '—'}</td>
+                      <td>{g.score_average ?? '—'}</td><td><strong>{g.proposed_grade}</strong></td>
                       <td>{gradeStatusBadge(g)}</td>
                     </tr>
                   ))}

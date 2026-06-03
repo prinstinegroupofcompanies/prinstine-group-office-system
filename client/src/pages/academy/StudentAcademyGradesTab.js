@@ -2,6 +2,13 @@ import React, { useMemo, useState, useEffect, useCallback } from 'react';
 import api from '../../config/api';
 import { downloadGradesheetPdf, openGradesheetPrintWindow } from '../../utils/buildGradesheetPdf';
 import { exportApprovedGradesExcel, exportApprovedGradesPdf } from '../../utils/academyGradesExport';
+import GradeTemplateForm from '../../components/academy/GradeTemplateForm';
+import {
+  EMPTY_GRADE_SCORES,
+  buildGradeSubmitPayload,
+  validateScoresForSubmit,
+  scoresFromGradeRow
+} from '../../utils/gradeTemplate';
 
 /**
  * Academy page tab: all admin-approved grades with cohort / course / student filters and search.
@@ -23,7 +30,7 @@ const StudentAcademyGradesTab = ({
   const [sortDir, setSortDir] = useState('asc');
   const [gradesheetLoading, setGradesheetLoading] = useState(null);
   const [approvedEditRow, setApprovedEditRow] = useState(null);
-  const [approvedEditForm, setApprovedEditForm] = useState({ proposed_grade: '', student_id: '', course_id: '' });
+  const [approvedEditForm, setApprovedEditForm] = useState({ student_id: '', course_id: '', scores: { ...EMPTY_GRADE_SCORES } });
   const [approvedEditCourses, setApprovedEditCourses] = useState([]);
   const [approvedEditSaving, setApprovedEditSaving] = useState(false);
 
@@ -137,9 +144,9 @@ const StudentAcademyGradesTab = ({
   const openApprovedEdit = (g) => {
     setApprovedEditRow(g);
     setApprovedEditForm({
-      proposed_grade: g.grade || '',
       student_id: String(g.student_id),
-      course_id: String(g.course_id)
+      course_id: String(g.course_id),
+      scores: scoresFromGradeRow(g)
     });
     api.get(`/academy/students/${g.student_id}/enrolled-courses`)
       .then((r) => setApprovedEditCourses(r.data.courses || []))
@@ -159,17 +166,20 @@ const StudentAcademyGradesTab = ({
 
   const saveApprovedEdit = async () => {
     if (!approvedEditRow) return;
-    const { proposed_grade, student_id, course_id } = approvedEditForm;
-    if (!proposed_grade?.trim() || !student_id || !course_id) {
-      alert('Grade, student, and course are required');
+    const { student_id, course_id, scores } = approvedEditForm;
+    if (!student_id || !course_id) {
+      alert('Student and course are required');
+      return;
+    }
+    const validationErrors = validateScoresForSubmit(scores);
+    if (validationErrors.length) {
+      alert(validationErrors.join('\n'));
       return;
     }
     setApprovedEditSaving(true);
     try {
       await api.put(`/academy/grades/${approvedEditRow.id}`, {
-        proposed_grade: proposed_grade.trim(),
-        student_id: parseInt(student_id, 10),
-        course_id: parseInt(course_id, 10)
+        ...buildGradeSubmitPayload(student_id, course_id, scores)
       });
       setApprovedEditRow(null);
       await load();
@@ -331,9 +341,8 @@ const StudentAcademyGradesTab = ({
                 <th role="button" onClick={() => handleSort('course_title')}>
                   Course {sortKey === 'course_title' ? (sortDir === 'asc' ? '↑' : '↓') : ''}
                 </th>
-                <th role="button" onClick={() => handleSort('grade')}>
-                  Grade {sortKey === 'grade' ? (sortDir === 'asc' ? '↑' : '↓') : ''}
-                </th>
+                <th>Average</th>
+                <th>Letter</th>
                 <th role="button" onClick={() => handleSort('approved_at')}>
                   Approved {sortKey === 'approved_at' ? (sortDir === 'asc' ? '↑' : '↓') : ''}
                 </th>
@@ -344,7 +353,7 @@ const StudentAcademyGradesTab = ({
             <tbody>
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={canManageGrades ? 7 : 6} className="text-muted text-center py-4">
+                  <td colSpan={canManageGrades ? 8 : 7} className="text-muted text-center py-4">
                     No approved grades match the current filters.
                   </td>
                 </tr>
@@ -360,9 +369,8 @@ const StudentAcademyGradesTab = ({
                     <td>
                       {g.course_title} <small className="text-muted">({g.course_code})</small>
                     </td>
-                    <td>
-                      <strong>{g.grade}</strong>
-                    </td>
+                    <td>{g.score_average ?? '—'}</td>
+                    <td><strong>{g.grade}</strong></td>
                     <td>{g.approved_at ? new Date(g.approved_at).toLocaleString() : '—'}</td>
                     <td>
                       <div className="btn-group btn-group-sm">
@@ -452,13 +460,12 @@ const StudentAcademyGradesTab = ({
                       </select>
                     </div>
                     <div className="col-12 mb-3">
-                      <label className="form-label">Grade</label>
-                      <input
-                        type="text"
-                        className="form-control"
-                        value={approvedEditForm.proposed_grade}
-                        onChange={(e) => setApprovedEditForm((f) => ({ ...f, proposed_grade: e.target.value }))}
-                        placeholder="e.g. A, B+, 85"
+                      <GradeTemplateForm
+                        scores={approvedEditForm.scores}
+                        onChange={(scores) => setApprovedEditForm((f) => ({ ...f, scores }))}
+                        showStudentInfo
+                        studentName={students.find((s) => String(s.id) === String(approvedEditForm.student_id))?.name}
+                        studentCode={students.find((s) => String(s.id) === String(approvedEditForm.student_id))?.student_id}
                       />
                     </div>
                   </div>

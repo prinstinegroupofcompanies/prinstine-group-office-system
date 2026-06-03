@@ -2336,6 +2336,13 @@ async function initializeDatabase() {
     const { addColumnIfMissing } = require('./utils/schemaHelpers');
     await addColumnIfMissing(db, 'grade_submissions', 'endorsed_by', 'INTEGER');
     await addColumnIfMissing(db, 'grade_submissions', 'endorsed_at', 'DATETIME');
+    await addColumnIfMissing(db, 'grade_submissions', 'score_assignment', 'REAL');
+    await addColumnIfMissing(db, 'grade_submissions', 'score_attendance', 'REAL');
+    await addColumnIfMissing(db, 'grade_submissions', 'score_presentation', 'REAL');
+    await addColumnIfMissing(db, 'grade_submissions', 'score_assessment', 'REAL');
+    await addColumnIfMissing(db, 'grade_submissions', 'score_project', 'REAL');
+    await addColumnIfMissing(db, 'grade_submissions', 'score_final_exam', 'REAL');
+    await addColumnIfMissing(db, 'grade_submissions', 'score_average', 'REAL');
 
     // Attendance: office geolocation columns (sign-in / sign-out lat-lng audit)
     if (fs.existsSync(attendanceGeoCoordsPath)) {

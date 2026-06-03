@@ -79,7 +79,9 @@ async function buildGradesheetPayload(studentDbId) {
   );
   if (!student) return null;
   const gradeRows = await db.all(
-    `SELECT g.proposed_grade as grade, g.approved_at,
+    `SELECT g.proposed_grade as grade, g.proposed_grade as letter_grade, g.approved_at,
+            g.score_assignment, g.score_attendance, g.score_presentation,
+            g.score_assessment, g.score_project, g.score_final_exam, g.score_average,
             c.course_code, c.title as course_title
      FROM grade_submissions g
      JOIN courses c ON g.course_id = c.id
@@ -93,12 +95,18 @@ async function buildGradesheetPayload(studentDbId) {
     studentCode: student.student_id,
     cohortName: student.cohort_name || null,
     cohortCode: student.cohort_code || null,
-    grades: gradeRows.map((r) => ({
-      grade: r.grade,
-      course_code: r.course_code,
-      course_title: r.course_title,
-      approved_at: r.approved_at
-    })),
+    grades: gradeRows.map((r) => {
+      const breakdown = gradeRowToBreakdown(r);
+      return {
+        grade: breakdown.letter_grade,
+        letter_grade: breakdown.letter_grade,
+        average: breakdown.average,
+        components: breakdown.components,
+        course_code: r.course_code,
+        course_title: r.course_title,
+        approved_at: r.approved_at
+      };
+    }),
     issuedDate: new Date().toISOString(),
     ceoName: 'Prince S. Cooper',
     ceoTitle: 'Chief Executive Officer, Prinstine Academy'
@@ -324,7 +332,9 @@ router.get('/students/me/grades', authenticateToken, requireRole('Student'), asy
     const student = await getCurrentStudent(req);
     if (!student) return res.status(404).json({ error: 'Student record not found or not approved' });
     const grades = await db.all(
-      `SELECT g.id, g.course_id, g.proposed_grade as grade, g.approved_at,
+      `SELECT g.id, g.course_id, g.proposed_grade as grade, g.proposed_grade as letter_grade,
+              g.approved_at, g.score_assignment, g.score_attendance, g.score_presentation,
+              g.score_assessment, g.score_project, g.score_final_exam, g.score_average,
               c.course_code, c.title,
               ch.name as cohort_name, ch.code as cohort_code
        FROM grade_submissions g
@@ -1730,12 +1740,16 @@ const {
   applyEnrollmentGradeFromSubmission,
   clearEnrollmentAfterApprovedGradeRemoved
 } = require('../utils/academyGradeEnrollment');
+const {
+  parseGradeSubmissionInput,
+  GRADE_SELECT_COLUMNS,
+  gradeRowToBreakdown
+} = require('../utils/gradeTemplate');
 
 // POST /api/academy/grades/submit (Instructor + Academy staff)
 router.post('/grades/submit', authenticateToken, [
   body('student_id').isInt().withMessage('student_id is required'),
-  body('course_id').isInt().withMessage('course_id is required'),
-  body('proposed_grade').trim().notEmpty().withMessage('proposed_grade is required')
+  body('course_id').isInt().withMessage('course_id is required')
 ], async (req, res) => {
   try {
     const canSubmit =
@@ -1745,7 +1759,14 @@ router.post('/grades/submit', authenticateToken, [
     }
     const errs = validationResult(req);
     if (!errs.isEmpty()) return res.status(400).json({ errors: errs.array() });
-    const { student_id, course_id, proposed_grade } = req.body;
+    const { student_id, course_id } = req.body;
+
+    let gradeFields;
+    try {
+      gradeFields = parseGradeSubmissionInput(req.body);
+    } catch (e) {
+      return res.status(e.statusCode || 400).json({ error: e.message });
+    }
 
     const enroll = await db.get(
       'SELECT id FROM student_course_enrollments WHERE student_id = ? AND course_id = ? AND status != ?',
@@ -1754,12 +1775,29 @@ router.post('/grades/submit', authenticateToken, [
     if (!enroll) return res.status(400).json({ error: 'Student is not enrolled in this course' });
 
     const run = await db.run(
-      `INSERT INTO grade_submissions (student_id, course_id, proposed_grade, status, submitted_by, created_at, updated_at)
-       VALUES (?, ?, ?, 'Pending', ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
-      [student_id, course_id, String(proposed_grade).trim(), req.user.id]
+      `INSERT INTO grade_submissions (
+         student_id, course_id, proposed_grade,
+         score_assignment, score_attendance, score_presentation,
+         score_assessment, score_project, score_final_exam, score_average,
+         status, submitted_by, created_at, updated_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Pending', ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+      [
+        student_id,
+        course_id,
+        gradeFields.proposed_grade,
+        gradeFields.score_assignment ?? null,
+        gradeFields.score_attendance ?? null,
+        gradeFields.score_presentation ?? null,
+        gradeFields.score_assessment ?? null,
+        gradeFields.score_project ?? null,
+        gradeFields.score_final_exam ?? null,
+        gradeFields.score_average ?? null,
+        req.user.id
+      ]
     );
 
-    await logAction(req.user.id, 'submit_grade', 'academy', run.lastID, { student_id, course_id, proposed_grade }, req);
+    const proposed_grade = gradeFields.proposed_grade;
+    await logAction(req.user.id, 'submit_grade', 'academy', run.lastID, { student_id, course_id, proposed_grade, ...gradeFields }, req);
 
     try {
       const { notifyAcademyCoordinators } = require('../utils/instructorHelpers');
@@ -1789,6 +1827,7 @@ router.get('/grades/pending', authenticateToken, async (req, res) => {
     const rows = await db.all(
       `SELECT g.id, g.student_id, g.course_id, g.proposed_grade, g.status, g.submitted_by, g.created_at,
               g.endorsed_by, g.endorsed_at,
+              ${GRADE_SELECT_COLUMNS},
               s.student_id as student_code, u.name as student_name, u.email as student_email,
               c.course_code, c.title as course_title,
               sub.name as submitted_by_name,
@@ -1819,6 +1858,7 @@ router.get('/grades/approved', authenticateToken, async (req, res) => {
     const { cohort_id, course_id, student_id, search } = req.query;
     let query = `
       SELECT g.id, g.student_id, g.course_id, g.proposed_grade as grade, g.approved_at,
+             ${GRADE_SELECT_COLUMNS},
              s.student_id as student_code, u.name as student_name, u.email as student_email,
              ch.id as cohort_id, ch.name as cohort_name, ch.code as cohort_code,
              c.course_code, c.title as course_title
@@ -2005,7 +2045,6 @@ router.put('/grades/:id/reject', authenticateToken, async (req, res, next) => {
 
 // PUT /api/academy/grades/:id — edit pending or approved submission
 router.put('/grades/:id', authenticateToken, requireAcademyManage('grades'), [
-  body('proposed_grade').trim().notEmpty().withMessage('proposed_grade is required'),
   body('student_id').optional().isInt(),
   body('course_id').optional().isInt()
 ], async (req, res) => {
@@ -2014,6 +2053,13 @@ router.put('/grades/:id', authenticateToken, requireAcademyManage('grades'), [
     if (!errs.isEmpty()) return res.status(400).json({ errors: errs.array() });
     const id = parseInt(req.params.id, 10);
     if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
+
+    let gradeFields;
+    try {
+      gradeFields = parseGradeSubmissionInput(req.body);
+    } catch (e) {
+      return res.status(e.statusCode || 400).json({ error: e.message });
+    }
 
     const g = await db.get(
       'SELECT id, student_id, course_id, proposed_grade, status FROM grade_submissions WHERE id = ?',
@@ -2024,7 +2070,7 @@ router.put('/grades/:id', authenticateToken, requireAcademyManage('grades'), [
       return res.status(400).json({ error: 'Cannot edit a rejected submission' });
     }
 
-    const proposed_grade = String(req.body.proposed_grade).trim();
+    const proposed_grade = gradeFields.proposed_grade;
     const student_id = req.body.student_id !== undefined ? parseInt(req.body.student_id, 10) : g.student_id;
     const course_id = req.body.course_id !== undefined ? parseInt(req.body.course_id, 10) : g.course_id;
 
@@ -2057,8 +2103,25 @@ router.put('/grades/:id', authenticateToken, requireAcademyManage('grades'), [
     }
 
     await db.run(
-      `UPDATE grade_submissions SET student_id = ?, course_id = ?, proposed_grade = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-      [student_id, course_id, proposed_grade, id]
+      `UPDATE grade_submissions SET
+         student_id = ?, course_id = ?, proposed_grade = ?,
+         score_assignment = ?, score_attendance = ?, score_presentation = ?,
+         score_assessment = ?, score_project = ?, score_final_exam = ?, score_average = ?,
+         updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?`,
+      [
+        student_id,
+        course_id,
+        proposed_grade,
+        gradeFields.score_assignment ?? null,
+        gradeFields.score_attendance ?? null,
+        gradeFields.score_presentation ?? null,
+        gradeFields.score_assessment ?? null,
+        gradeFields.score_project ?? null,
+        gradeFields.score_final_exam ?? null,
+        gradeFields.score_average ?? null,
+        id
+      ]
     );
 
     if (g.status === 'Approved') {

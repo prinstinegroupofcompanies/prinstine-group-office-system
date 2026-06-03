@@ -14,6 +14,7 @@ const {
   notifyEnrolledStudents,
   isInstructorApproved
 } = require('../utils/instructorHelpers');
+const { parseGradeSubmissionInput, GRADE_SELECT_COLUMNS } = require('../utils/gradeTemplate');
 
 async function requireInstructor(req, res, next) {
   if (req.user.role !== 'Instructor') {
@@ -114,6 +115,7 @@ router.get('/me/grade-submissions', authenticateToken, requireRole('Instructor')
     const rows = await db.all(
       `SELECT g.id, g.student_id, g.course_id, g.proposed_grade, g.status, g.created_at,
               g.endorsed_by, g.endorsed_at, g.approved_by, g.approved_at, g.notes,
+              ${GRADE_SELECT_COLUMNS},
               s.student_id as student_code, u.name as student_name,
               c.course_code, c.title as course_title,
               endr.name as endorsed_by_name,
@@ -387,14 +389,22 @@ router.post(
   requireApprovedInstructor,
   [
     body('student_id').isInt().withMessage('student_id is required'),
-    body('course_id').isInt().withMessage('course_id is required'),
-    body('proposed_grade').trim().notEmpty().withMessage('proposed_grade is required')
+    body('course_id').isInt().withMessage('course_id is required')
   ],
   async (req, res) => {
     try {
       const errs = validationResult(req);
       if (!errs.isEmpty()) return res.status(400).json({ errors: errs.array() });
-      const { student_id, course_id, proposed_grade } = req.body;
+      const { student_id, course_id } = req.body;
+
+      let gradeFields;
+      try {
+        gradeFields = parseGradeSubmissionInput(req.body);
+      } catch (e) {
+        return res.status(e.statusCode || 400).json({ error: e.message });
+      }
+
+      const proposed_grade = gradeFields.proposed_grade;
       const owns = await instructorOwnsCourse(req.instructor, course_id);
       if (!owns) {
         return res.status(403).json({ error: 'You can only submit grades for your assigned courses' });
@@ -406,12 +416,28 @@ router.post(
       if (!enroll) return res.status(400).json({ error: 'Student is not enrolled in this course' });
 
       const run = await db.run(
-        `INSERT INTO grade_submissions (student_id, course_id, proposed_grade, status, submitted_by, created_at, updated_at)
-         VALUES (?, ?, ?, 'Pending', ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
-        [student_id, course_id, String(proposed_grade).trim(), req.user.id]
+        `INSERT INTO grade_submissions (
+           student_id, course_id, proposed_grade,
+           score_assignment, score_attendance, score_presentation,
+           score_assessment, score_project, score_final_exam, score_average,
+           status, submitted_by, created_at, updated_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Pending', ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+        [
+          student_id,
+          course_id,
+          proposed_grade,
+          gradeFields.score_assignment ?? null,
+          gradeFields.score_attendance ?? null,
+          gradeFields.score_presentation ?? null,
+          gradeFields.score_assessment ?? null,
+          gradeFields.score_project ?? null,
+          gradeFields.score_final_exam ?? null,
+          gradeFields.score_average ?? null,
+          req.user.id
+        ]
       );
 
-      await logAction(req.user.id, 'submit_grade', 'academy', run.lastID, { student_id, course_id, proposed_grade }, req);
+      await logAction(req.user.id, 'submit_grade', 'academy', run.lastID, { student_id, course_id, proposed_grade, ...gradeFields }, req);
 
       const { notifyAcademyCoordinators } = require('../utils/instructorHelpers');
       await notifyAcademyCoordinators({

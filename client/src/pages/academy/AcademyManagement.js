@@ -16,6 +16,13 @@ import {
 } from '../../utils/academyPermissions';
 import AcademyStaffPermissions from './AcademyStaffPermissions';
 import AcademyBulkBar from '../../components/academy/AcademyBulkBar';
+import GradeTemplateForm from '../../components/academy/GradeTemplateForm';
+import {
+  EMPTY_GRADE_SCORES,
+  buildGradeSubmitPayload,
+  validateScoresForSubmit,
+  scoresFromGradeRow
+} from '../../utils/gradeTemplate';
 import { getSocket } from '../../config/socket';
 import {
   exportCoursesExcel,
@@ -53,14 +60,14 @@ const AcademyManagement = () => {
 
   const [gradesPending, setGradesPending] = useState([]);
   const [gradesPendingLoading, setGradesPendingLoading] = useState(false);
-  const [gradeForm, setGradeForm] = useState({ student_id: '', course_id: '', proposed_grade: '' });
+  const [gradeForm, setGradeForm] = useState({ student_id: '', course_id: '', scores: { ...EMPTY_GRADE_SCORES } });
   const [gradeEnrolledCourses, setGradeEnrolledCourses] = useState([]);
   const [gradeSubmitting, setGradeSubmitting] = useState(false);
   const [gradeActionId, setGradeActionId] = useState(null);
   const [gradeActionMode, setGradeActionMode] = useState(null);
   const [gradeNotes, setGradeNotes] = useState('');
   const [pendingEditRow, setPendingEditRow] = useState(null);
-  const [pendingEditForm, setPendingEditForm] = useState({ proposed_grade: '', student_id: '', course_id: '' });
+  const [pendingEditForm, setPendingEditForm] = useState({ student_id: '', course_id: '', scores: { ...EMPTY_GRADE_SCORES } });
   const [pendingEditCourses, setPendingEditCourses] = useState([]);
   const [pendingEditSaving, setPendingEditSaving] = useState(false);
   
@@ -344,20 +351,26 @@ const AcademyManagement = () => {
   };
 
   const handleGradeStudentChange = (studentId) => {
-    setGradeForm((f) => ({ ...f, student_id: studentId, course_id: '', proposed_grade: f.proposed_grade }));
+    setGradeForm((f) => ({ ...f, student_id: studentId, course_id: '', scores: { ...EMPTY_GRADE_SCORES } }));
     fetchGradeEnrolledCourses(studentId);
   };
 
   const handleGradeSubmit = async (e) => {
     e.preventDefault();
-    const { student_id, course_id, proposed_grade } = gradeForm;
-    if (!student_id || !course_id || !proposed_grade?.trim()) return;
+    const { student_id, course_id, scores } = gradeForm;
+    if (!student_id || !course_id) return;
+    const validationErrors = validateScoresForSubmit(scores);
+    if (validationErrors.length) {
+      alert(validationErrors.join('\n'));
+      return;
+    }
     setGradeSubmitting(true);
     try {
-      await api.post('/academy/grades/submit', { student_id: parseInt(student_id, 10), course_id: parseInt(course_id, 10), proposed_grade: proposed_grade.trim() });
-      setGradeForm({ student_id: '', course_id: '', proposed_grade: '' });
+      await api.post('/academy/grades/submit', buildGradeSubmitPayload(student_id, course_id, scores));
+      setGradeForm({ student_id: '', course_id: '', scores: { ...EMPTY_GRADE_SCORES } });
       setGradeEnrolledCourses([]);
-      alert('Grade submitted for approval.');
+      alert('Grade submitted for coordinator review.');
+      fetchGradesPending();
     } catch (err) {
       alert(err.response?.data?.error || 'Failed to submit grade');
     } finally {
@@ -404,9 +417,9 @@ const AcademyManagement = () => {
   const openPendingGradeEdit = (g) => {
     setPendingEditRow(g);
     setPendingEditForm({
-      proposed_grade: g.proposed_grade || '',
       student_id: String(g.student_id),
-      course_id: String(g.course_id)
+      course_id: String(g.course_id),
+      scores: scoresFromGradeRow(g)
     });
     api.get(`/academy/students/${g.student_id}/enrolled-courses`)
       .then((r) => setPendingEditCourses(r.data.courses || []))
@@ -426,17 +439,20 @@ const AcademyManagement = () => {
 
   const savePendingGradeEdit = async () => {
     if (!pendingEditRow) return;
-    const { proposed_grade, student_id, course_id } = pendingEditForm;
-    if (!proposed_grade?.trim() || !student_id || !course_id) {
-      alert('Grade, student, and course are required');
+    const { student_id, course_id, scores } = pendingEditForm;
+    if (!student_id || !course_id) {
+      alert('Student and course are required');
+      return;
+    }
+    const validationErrors = validateScoresForSubmit(scores);
+    if (validationErrors.length) {
+      alert(validationErrors.join('\n'));
       return;
     }
     setPendingEditSaving(true);
     try {
       await api.put(`/academy/grades/${pendingEditRow.id}`, {
-        proposed_grade: proposed_grade.trim(),
-        student_id: parseInt(student_id, 10),
-        course_id: parseInt(course_id, 10)
+        ...buildGradeSubmitPayload(student_id, course_id, scores)
       });
       setPendingEditRow(null);
       fetchGradesPending();
@@ -1454,19 +1470,16 @@ const AcademyManagement = () => {
                         ))}
                       </select>
                     </div>
-                    <div className="mb-3">
-                      <label className="form-label">Proposed grade</label>
-                      <input
-                        type="text"
-                        className="form-control"
-                        value={gradeForm.proposed_grade}
-                        onChange={(e) => setGradeForm((f) => ({ ...f, proposed_grade: e.target.value }))}
-                        placeholder="e.g. A, B+, 85"
-                        required
-                      />
-                    </div>
-                    <button type="submit" className="btn btn-primary" disabled={gradeSubmitting}>
-                      {gradeSubmitting ? 'Submitting…' : 'Submit for approval'}
+                    <GradeTemplateForm
+                      scores={gradeForm.scores}
+                      onChange={(scores) => setGradeForm((f) => ({ ...f, scores }))}
+                      disabled={!gradeForm.student_id || !gradeForm.course_id}
+                      showStudentInfo
+                      studentName={studentsForSelect.find((s) => String(s.id) === String(gradeForm.student_id))?.name}
+                      studentCode={studentsForSelect.find((s) => String(s.id) === String(gradeForm.student_id))?.student_id}
+                    />
+                    <button type="submit" className="btn btn-primary mt-3" disabled={gradeSubmitting || !gradeForm.student_id || !gradeForm.course_id}>
+                      {gradeSubmitting ? 'Submitting…' : 'Submit for coordinator review'}
                     </button>
                   </form>
                 </div>
@@ -1519,7 +1532,8 @@ const AcademyManagement = () => {
                             {(canEndorse || canFinalApprove) && <th style={{ width: 40 }} />}
                             <th>Student</th>
                             <th>Course</th>
-                            <th>Grade</th>
+                            <th>Average</th>
+                            <th>Letter</th>
                             <th>Submitted by</th>
                             <th>Coordinator</th>
                             <th></th>
@@ -1540,6 +1554,7 @@ const AcademyManagement = () => {
                               )}
                               <td><strong>{g.student_name}</strong><br /><small className="text-muted">{g.student_email}</small></td>
                               <td>{g.course_title} ({g.course_code})</td>
+                              <td>{g.score_average ?? '—'}</td>
                               <td><strong>{g.proposed_grade}</strong></td>
                               <td>{g.submitted_by_name || '—'}</td>
                               <td>
@@ -1645,13 +1660,12 @@ const AcademyManagement = () => {
                             </select>
                           </div>
                           <div className="col-12 mb-3">
-                            <label className="form-label">Grade</label>
-                            <input
-                              type="text"
-                              className="form-control"
-                              value={pendingEditForm.proposed_grade}
-                              onChange={(e) => setPendingEditForm((f) => ({ ...f, proposed_grade: e.target.value }))}
-                              placeholder="e.g. A, B+, 85"
+                            <GradeTemplateForm
+                              scores={pendingEditForm.scores}
+                              onChange={(scores) => setPendingEditForm((f) => ({ ...f, scores }))}
+                              showStudentInfo
+                              studentName={studentsForSelect.find((s) => String(s.id) === String(pendingEditForm.student_id))?.name}
+                              studentCode={studentsForSelect.find((s) => String(s.id) === String(pendingEditForm.student_id))?.student_id}
                             />
                           </div>
                         </div>
