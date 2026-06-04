@@ -123,35 +123,18 @@ function sendCertificateFileResponse(res, absDiskPath, friendlyCertificateId) {
   res.sendFile(absolute);
 }
 
-async function backfillFileDataUrl(db, certificateRowId, absDiskPath) {
-  if (!db || !certificateRowId || !absDiskPath || !fs.existsSync(absDiskPath)) return;
-  try {
-    const ext = path.extname(absDiskPath).toLowerCase();
-    const mime =
-      ext === '.pdf'
-        ? 'application/pdf'
-        : ext === '.png'
-          ? 'image/png'
-          : ext === '.jpg' || ext === '.jpeg'
-            ? 'image/jpeg'
-            : 'application/octet-stream';
-    const bytes = fs.readFileSync(absDiskPath);
-    const dataUrl = `data:${mime};base64,${bytes.toString('base64')}`;
-    await db.run('UPDATE certificates SET file_data_url = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [
-      dataUrl,
-      certificateRowId
-    ]);
-  } catch (err) {
-    console.error('Certificate DB backfill from disk failed:', err.message);
-  }
-}
-
 /**
- * Serve certificate bytes like profile images: prefer permanent DB (file_data_url), then disk with backfill.
- * @param {object} cert — needs id (for backfill), certificate_id, file_path/pdf_path/resolved_file_path, file_data_url
+ * Serve certificate bytes: prefer on-disk file (fast), fall back to legacy DB data URL only.
+ * @param {object} cert — needs certificate_id, file_path/pdf_path/resolved_file_path, optional file_data_url
  */
 async function deliverCertificateBinary(res, db, cert, options = {}) {
   const notFoundMessage = options.notFoundMessage || 'Certificate file not found on server';
+
+  const absDiskPath = resolveCertificateAbsoluteDiskPath(cert);
+  if (absDiskPath && fs.existsSync(absDiskPath)) {
+    sendCertificateFileResponse(res, absDiskPath, cert.certificate_id);
+    return;
+  }
 
   if (cert.file_data_url) {
     const decoded = decodeDataUrl(cert.file_data_url);
@@ -161,21 +144,6 @@ async function deliverCertificateBinary(res, db, cert, options = {}) {
     }
   }
 
-  const absDiskPath = resolveCertificateAbsoluteDiskPath(cert);
-  if (absDiskPath && fs.existsSync(absDiskPath)) {
-    if (cert.id && !cert.file_data_url) {
-      await backfillFileDataUrl(db, cert.id, absDiskPath);
-    }
-    if (fs.existsSync(absDiskPath)) {
-      sendCertificateFileResponse(res, absDiskPath, cert.certificate_id);
-      return;
-    }
-  }
-
-  if (cert.file_data_url) {
-    res.status(404).json({ error: 'Certificate file data is not available' });
-    return;
-  }
   res.status(404).json({ error: notFoundMessage });
 }
 

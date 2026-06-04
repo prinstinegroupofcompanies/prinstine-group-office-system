@@ -39,15 +39,13 @@ const fileFilter = (req, file, cb) => {
 
 const certificateMaxUploadBytes = Number(process.env.CERTIFICATE_MAX_FILE_SIZE_MB || 0) > 0
   ? Number(process.env.CERTIFICATE_MAX_FILE_SIZE_MB) * 1024 * 1024
-  : null;
+  : 15 * 1024 * 1024; // 15MB default — avoids huge uploads blocking the server
 
 const uploadOptions = {
   storage: storage,
-  fileFilter: fileFilter
+  fileFilter: fileFilter,
+  limits: { fileSize: certificateMaxUploadBytes }
 };
-if (certificateMaxUploadBytes) {
-  uploadOptions.limits = { fileSize: certificateMaxUploadBytes };
-}
 
 const upload = multer(uploadOptions);
 
@@ -116,45 +114,49 @@ function isCertificateWindowOpenForCohort(row) {
   return true;
 }
 
+/** Columns returned to clients — excludes heavy file_data_url blob. */
+const CERTIFICATE_LIST_SELECT = `
+  c.id, c.certificate_id, c.student_id, c.course_id, c.issue_date, c.completion_date,
+  c.grade, c.verification_code, c.file_path, c.pdf_path, c.file_type, c.created_at, c.updated_at
+`;
+
 function normalizeCertificateRow(certificate) {
   if (!certificate) return certificate;
-  const resolvedFilePath = toPublicCertificatePath(certificate.file_path || certificate.pdf_path || null);
+  const { file_data_url: _omit, ...rest } = certificate;
+  const resolvedFilePath = toPublicCertificatePath(rest.file_path || rest.pdf_path || null);
   const inferredType = String(resolvedFilePath || '').toLowerCase().endsWith('.pdf')
     ? 'pdf'
     : (String(resolvedFilePath || '').toLowerCase().endsWith('.png') ? 'png' : (resolvedFilePath ? 'jpeg' : null));
   return {
-    ...certificate,
-    student_image: normalizeProfileImage(certificate.student_image),
+    ...rest,
+    student_image: normalizeProfileImage(rest.student_image),
     file_path: resolvedFilePath,
-    file_type: certificate.file_type || inferredType
+    file_type: rest.file_type || inferredType
   };
 }
 
-function toDataUrlFromUpload(file) {
-  if (!file || !file.path || !fs.existsSync(file.path)) return null;
-  try {
-    const bytes = fs.readFileSync(file.path);
-    const mime = (file.mimetype || 'application/octet-stream').toLowerCase();
-    return `data:${mime};base64,${bytes.toString('base64')}`;
-  } catch (_err) {
-    return null;
-  }
-}
+let cachedCertificateColumnNames = null;
 
 async function getCertificateColumnNames() {
+  if (cachedCertificateColumnNames) return cachedCertificateColumnNames;
   try {
     const pragma = await db.all("PRAGMA table_info(certificates)");
     if (Array.isArray(pragma) && pragma.length > 0) {
-      return pragma.map((c) => c.name);
+      cachedCertificateColumnNames = pragma.map((c) => c.name);
+      return cachedCertificateColumnNames;
     }
   } catch (_err) {}
   try {
-    const cols = await db.all("SELECT column_name FROM information_schema.columns WHERE table_name = 'certificates' AND table_schema = 'public'");
+    const cols = await db.all(
+      "SELECT column_name FROM information_schema.columns WHERE table_name = 'certificates' AND table_schema = 'public'"
+    );
     if (Array.isArray(cols) && cols.length > 0) {
-      return cols.map((c) => c.column_name);
+      cachedCertificateColumnNames = cols.map((c) => c.column_name);
+      return cachedCertificateColumnNames;
     }
   } catch (_err) {}
-  return [];
+  cachedCertificateColumnNames = [];
+  return cachedCertificateColumnNames;
 }
 
 async function ensureCertificateStorageColumns() {
@@ -181,14 +183,12 @@ async function ensureCertificateStorageColumns() {
   } catch (_err) {}
 }
 
-router.use(async (_req, _res, next) => {
-  try {
-    await ensureCertificateStorageColumns();
-  } catch (_err) {
-    // non-fatal; route handlers will surface concrete DB errors if any
-  }
-  next();
-});
+let certificateColumnsReady = false;
+async function ensureCertificateColumnsOnce() {
+  if (certificateColumnsReady) return;
+  await ensureCertificateStorageColumns();
+  certificateColumnsReady = true;
+}
 
 // Get all certificates (Admin + Academy team)
 router.get('/', authenticateToken, requireRole('Admin', 'Staff', 'Instructor', 'DepartmentHead'), async (req, res) => {
@@ -198,8 +198,9 @@ router.get('/', authenticateToken, requireRole('Admin', 'Staff', 'Instructor', '
       return res.status(403).json({ error: 'Only Academy team and Admin can view certificates' });
     }
     const { search, student_id, course_id } = req.query;
+    await ensureCertificateColumnsOnce();
     let query = `
-      SELECT c.*, 
+      SELECT ${CERTIFICATE_LIST_SELECT},
              s.student_id as student_code,
              u.name as student_name,
              u.profile_image as student_image,
@@ -251,8 +252,9 @@ router.get('/search/:query', authenticateToken, requireRole('Admin', 'Staff', 'I
     }
     const query = req.params.query;
 
+    await ensureCertificateColumnsOnce();
     const certificates = await db.all(
-      `SELECT c.*, 
+      `SELECT ${CERTIFICATE_LIST_SELECT},
               s.student_id as student_code,
               u.name as student_name,
               u.profile_image as student_image,
@@ -281,8 +283,9 @@ router.get('/:id', authenticateToken, async (req, res) => {
   try {
     const certificateId = req.params.id;
 
+    await ensureCertificateColumnsOnce();
     const certificate = await db.get(
-      `SELECT c.*, 
+      `SELECT ${CERTIFICATE_LIST_SELECT},
               s.student_id as student_code,
               u.name as student_name,
               u.profile_image as student_image,
@@ -370,8 +373,8 @@ router.post('/', authenticateToken, requireRole('Admin', 'Staff', 'Instructor', 
     const fileExt = path.extname(req.file.filename).toLowerCase();
     const fileType = fileExt === '.pdf' ? 'pdf' : fileExt === '.png' ? 'png' : 'jpeg';
     const filePath = `/uploads/certificates/${req.file.filename}`;
-    const fileDataUrl = toDataUrlFromUpload(req.file);
 
+    await ensureCertificateColumnsOnce();
     const certColumns = await getCertificateColumnNames();
     const fields = ['certificate_id', 'student_id', 'course_id', 'issue_date', 'grade', 'verification_code'];
     const values = [
@@ -393,10 +396,6 @@ router.post('/', authenticateToken, requireRole('Admin', 'Staff', 'Instructor', 
     if (certColumns.includes('completion_date')) {
       fields.push('completion_date');
       values.push(completion_date || null);
-    }
-    if (certColumns.includes('file_data_url') && fileDataUrl) {
-      fields.push('file_data_url');
-      values.push(fileDataUrl);
     }
     if (certColumns.includes('pdf_path')) {
       fields.push('pdf_path');
@@ -421,11 +420,9 @@ router.post('/', authenticateToken, requireRole('Admin', 'Staff', 'Instructor', 
       );
     }
 
-    await logAction(req.user.id, 'create_certificate', 'certificates', result.lastID, { certificateId }, req);
-
-    if (certColumns.includes('file_data_url') && fileDataUrl && req.file?.path) {
-      safeUnlink(req.file.path);
-    }
+    logAction(req.user.id, 'create_certificate', 'certificates', result.lastID, { certificateId }, req).catch(
+      (err) => console.error('create_certificate audit log failed:', err.message)
+    );
 
     res.status(201).json({
       message: 'Certificate created successfully',
@@ -466,7 +463,6 @@ router.put('/:id', authenticateToken, requireRole('Admin', 'Staff', 'Instructor'
 
     const updates = [];
     const params = [];
-    let pendingNewCertFileUnlink = null;
 
     if (grade !== undefined) {
       updates.push('grade = ?');
@@ -492,8 +488,8 @@ router.put('/:id', authenticateToken, requireRole('Admin', 'Staff', 'Instructor'
       const fileExt = path.extname(req.file.filename).toLowerCase();
       const fileType = fileExt === '.pdf' ? 'pdf' : fileExt === '.png' ? 'png' : 'jpeg';
       const filePath = `/uploads/certificates/${req.file.filename}`;
-      const fileDataUrl = toDataUrlFromUpload(req.file);
 
+      await ensureCertificateColumnsOnce();
       const certColumns = await getCertificateColumnNames();
       if (certColumns.includes('file_path')) {
         updates.push('file_path = ?');
@@ -507,11 +503,6 @@ router.put('/:id', authenticateToken, requireRole('Admin', 'Staff', 'Instructor'
         updates.push('file_type = ?');
         params.push(fileType);
       }
-      if (certColumns.includes('file_data_url') && fileDataUrl) {
-        updates.push('file_data_url = ?');
-        params.push(fileDataUrl);
-        pendingNewCertFileUnlink = req.file.path;
-      }
     }
 
     if (updates.length > 0) {
@@ -522,11 +513,9 @@ router.put('/:id', authenticateToken, requireRole('Admin', 'Staff', 'Instructor'
       );
     }
 
-    if (pendingNewCertFileUnlink) {
-      safeUnlink(pendingNewCertFileUnlink);
-    }
-
-    await logAction(req.user.id, 'update_certificate', 'certificates', certificateId, req.body, req);
+    logAction(req.user.id, 'update_certificate', 'certificates', certificateId, req.body, req).catch(
+      (err) => console.error('update_certificate audit log failed:', err.message)
+    );
 
     res.json({ message: 'Certificate updated successfully' });
   } catch (error) {
@@ -584,7 +573,7 @@ router.post('/verify', async (req, res) => {
     }
 
     const certificates = await db.all(
-      `SELECT c.*, 
+      `SELECT ${CERTIFICATE_LIST_SELECT},
               s.student_id as student_code,
               s.cohort_id,
               u.name as student_name,
@@ -727,6 +716,10 @@ router.get('/public/:id/download/:format', async (req, res) => {
     console.error('Public download certificate error:', error);
     res.status(500).json({ error: 'Failed to download certificate' });
   }
+});
+
+ensureCertificateColumnsOnce().catch((err) => {
+  console.warn('Certificate column bootstrap deferred:', err?.message);
 });
 
 module.exports = router;

@@ -143,18 +143,12 @@ const CertificateForm = ({ certificate, onClose }) => {
       if (formData.completion_date) formDataObj.append('completion_date', formData.completion_date);
       if (file) formDataObj.append('certificate_file', file);
 
+      const uploadConfig = { timeout: 120000 };
+
       if (certificate) {
-        await api.put(`/certificates/${certificate.id}`, formDataObj, {
-          headers: {
-            'Content-Type': 'multipart/form-data'
-          }
-        });
+        await api.put(`/certificates/${certificate.id}`, formDataObj, uploadConfig);
       } else {
-        await api.post('/certificates', formDataObj, {
-          headers: {
-            'Content-Type': 'multipart/form-data'
-          }
-        });
+        await api.post('/certificates', formDataObj, uploadConfig);
       }
       
       onClose();
@@ -249,7 +243,7 @@ const CertificateForm = ({ certificate, onClose }) => {
                 />
                 {file && (
                   <small className="text-muted d-block mt-1">
-                    Selected: {file.name} ({(file.size / 1024 / 1024).toFixed(2)} MB)
+                    Selected: {file.name} ({(file.size / 1024 / 1024).toFixed(2)} MB). Keep files under 15MB for fastest upload.
                   </small>
                 )}
               </div>
@@ -292,7 +286,7 @@ const CertificateForm = ({ certificate, onClose }) => {
             <div className="modal-footer">
               <button type="button" className="btn btn-secondary" onClick={onClose}>Cancel</button>
               <button type="submit" className="btn btn-primary" disabled={loading || !formData.course_id || (!certificate && !file)}>
-                {loading ? 'Saving...' : certificate ? 'Update' : 'Create'}
+                {loading ? (file ? 'Uploading certificate…' : 'Saving…') : certificate ? 'Update' : 'Create'}
               </button>
             </div>
           </form>

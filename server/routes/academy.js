@@ -384,7 +384,6 @@ router.get('/students/me/certificates', authenticateToken, requireRole('Student'
     const certs = await db.all(
       `SELECT c.id, c.certificate_id, c.course_id, c.issue_date, c.grade, c.verification_code,
               COALESCE(c.file_path, c.pdf_path) as file_path,
-              c.file_data_url,
               co.course_code, co.title as course_title
        FROM certificates c
        JOIN courses co ON c.course_id = co.id
@@ -394,7 +393,7 @@ router.get('/students/me/certificates', authenticateToken, requireRole('Student'
     );
     const withUrls = certs.map((cert) => ({
       ...cert,
-      download_url: (cert.file_path || cert.file_data_url)
+      download_url: cert.file_path
         ? `/academy/students/me/certificates/${cert.id}/download`
         : null
     }));
