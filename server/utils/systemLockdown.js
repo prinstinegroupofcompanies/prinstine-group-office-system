@@ -2,14 +2,8 @@
  * System-wide access lockdown.
  *
  * Locked by default on every deployment (including fresh repo clones).
- * Reopen ONLY by setting SYSTEM_ACCESS_ENABLED=true in production env
- * (Render/Vercel dashboard — primary developer access required).
+ * Reopen by setting SYSTEM_ACCESS_ENABLED=true in production env (Render).
  */
-
-const PRIMARY_DEVELOPER_NAME =
-  process.env.SYSTEM_PRIMARY_DEVELOPER_NAME || 'Samson Bryant';
-const PRIMARY_DEVELOPER_EMAIL =
-  process.env.SYSTEM_PRIMARY_DEVELOPER_EMAIL || 'samsonbryant89@gmail.com';
 
 const LOCKDOWN_CODE = 'SYSTEM_LOCKDOWN';
 
@@ -29,17 +23,11 @@ function getLockdownPayload() {
     locked,
     enabled: !locked,
     code: locked ? LOCKDOWN_CODE : null,
-    title: 'System Temporarily Offline',
+    title: 'System Currently Unavailable',
     message:
-      'The Prinstine Management System is temporarily closed. All logins are disabled for administrators, department heads, staff, students, and instructors.',
-    developer: {
-      name: PRIMARY_DEVELOPER_NAME,
-      email: PRIMARY_DEVELOPER_EMAIL,
-      role: 'Primary System Developer'
-    },
-    reopen:
-      'Access can only be restored by the primary developer. If you deployed this codebase, do not enable logins without authorization — contact the developer below.',
-    contact_instruction: `Contact ${PRIMARY_DEVELOPER_NAME} at ${PRIMARY_DEVELOPER_EMAIL} to request system reopening.`
+      'The Prinstine Management System is currently down due to server issues affecting the backend and frontend. Please try again later.',
+    detail:
+      'All logins are temporarily disabled. We are working to restore service as soon as possible.'
   };
 }
 
@@ -78,8 +66,7 @@ function logLockdownStateOnStartup() {
     console.log('');
     console.log('══════════════════════════════════════════════════════════');
     console.log('  SYSTEM ACCESS: LOCKED (all logins disabled)');
-    console.log(`  Primary developer: ${PRIMARY_DEVELOPER_NAME} <${PRIMARY_DEVELOPER_EMAIL}>`);
-    console.log('  Reopen: set SYSTEM_ACCESS_ENABLED=true in server environment only.');
+    console.log('  Reopen: set SYSTEM_ACCESS_ENABLED=true in server environment.');
     console.log('══════════════════════════════════════════════════════════');
     console.log('');
   } else {

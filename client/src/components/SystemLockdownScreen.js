@@ -2,7 +2,6 @@ import React from 'react';
 
 const SystemLockdownScreen = ({ lockdown, compact = false }) => {
   const info = lockdown || {};
-  const dev = info.developer || {};
 
   return (
     <div className={compact ? 'text-center py-4' : 'auth-container'}>
@@ -17,43 +16,18 @@ const SystemLockdownScreen = ({ lockdown, compact = false }) => {
             />
           )}
           <div className="mb-3">
-            <i className="bi bi-shield-lock text-danger" style={{ fontSize: compact ? '2rem' : '3rem' }} />
+            <i className="bi bi-exclamation-triangle text-warning" style={{ fontSize: compact ? '2rem' : '3rem' }} />
           </div>
-          <h2 className={compact ? 'h4' : 'h3'}>{info.title || 'System Temporarily Offline'}</h2>
+          <h2 className={compact ? 'h4' : 'h3'}>{info.title || 'System Currently Unavailable'}</h2>
         </div>
 
-        <div className="alert alert-warning">
+        <div className="alert alert-warning mb-0">
           <p className="mb-2">
             {info.message ||
-              'The Prinstine Management System is temporarily closed. All user logins are disabled.'}
+              'The Prinstine Management System is currently down due to server issues affecting the backend and frontend. Please try again later.'}
           </p>
-          {info.reopen && <p className="mb-0 small">{info.reopen}</p>}
+          {info.detail && <p className="mb-0 small text-muted">{info.detail}</p>}
         </div>
-
-        <div className="card border-0 bg-light">
-          <div className="card-body">
-            <h6 className="card-title mb-2">
-              <i className="bi bi-person-badge me-2" />
-              Primary Developer
-            </h6>
-            <p className="mb-1 fw-semibold">{dev.name || 'Primary System Developer'}</p>
-            {dev.email && (
-              <p className="mb-2">
-                <a href={`mailto:${dev.email}`}>{dev.email}</a>
-              </p>
-            )}
-            <p className="text-muted small mb-0">
-              {info.contact_instruction ||
-                'Contact the primary developer to authorize system reopening.'}
-            </p>
-          </div>
-        </div>
-
-        {!compact && (
-          <p className="text-muted small text-center mt-4 mb-0">
-            Unauthorized deployments must remain locked. Only the primary developer may restore access.
-          </p>
-        )}
       </div>
     </div>
   );
