@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import api from '../../config/api';
+import SystemLockdownScreen from '../../components/SystemLockdownScreen';
 import './Auth.css';
 
 const Login = () => {
@@ -11,7 +12,7 @@ const Login = () => {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [serverReady, setServerReady] = useState(false);
-  const { login } = useAuth();
+  const { login, systemLocked, lockdownInfo } = useAuth();
   const navigate = useNavigate();
 
   // Wake up the backend immediately so it's ready by the time the user submits.
@@ -72,6 +73,10 @@ const Login = () => {
       setLoading(false);
     }
   };
+
+  if (systemLocked) {
+    return <SystemLockdownScreen lockdown={lockdownInfo} />;
+  }
 
   return (
     <div className="auth-container">

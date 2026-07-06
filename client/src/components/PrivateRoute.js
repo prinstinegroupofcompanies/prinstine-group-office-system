@@ -2,8 +2,10 @@ import React from 'react';
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 
+import SystemLockdownScreen from './SystemLockdownScreen';
+
 const PrivateRoute = ({ children, requiredRole = null, requiredRoles = null }) => {
-  const { user, loading } = useAuth();
+  const { user, loading, systemLocked, lockdownInfo } = useAuth();
 
   if (loading) {
     return (
@@ -21,6 +23,10 @@ const PrivateRoute = ({ children, requiredRole = null, requiredRoles = null }) =
         </div>
       </div>
     );
+  }
+
+  if (systemLocked) {
+    return <SystemLockdownScreen lockdown={lockdownInfo} />;
   }
 
   if (!user) {

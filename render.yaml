@@ -34,6 +34,13 @@ services:
         sync: false
       - key: JWT_EXPIRES_IN
         value: 24h
+      # System locked by default — primary developer sets true on Render to reopen logins
+      - key: SYSTEM_ACCESS_ENABLED
+        value: "false"
+      - key: SYSTEM_PRIMARY_DEVELOPER_NAME
+        value: Samson Bryant
+      - key: SYSTEM_PRIMARY_DEVELOPER_EMAIL
+        value: samsonbryant89@gmail.com
       - key: ENCRYPTION_KEY
         sync: false
       - key: EMAIL_HOST

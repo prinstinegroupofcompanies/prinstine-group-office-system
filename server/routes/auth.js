@@ -8,6 +8,7 @@ const { sendOTP, sendPasswordReset } = require('../utils/email');
 const { normalizeProfileImage } = require('../utils/normalizeProfileImage');
 const { attachAcademyContext, ACADEMY_DEPARTMENT_PATTERN, ACADEMY_HEAD_EMAILS } = require('../utils/academyPermissions');
 const { findUserByLoginId } = require('../utils/emailNormalize');
+const { lockdownErrorResponse, isSystemLocked } = require('../utils/systemLockdown');
 const crypto = require('crypto');
 
 // Generate OTP
@@ -22,6 +23,10 @@ router.post('/login', [
   body('email').trim().notEmpty().withMessage('Email or username is required'),
   body('password').notEmpty().withMessage('Password is required')
 ], async (req, res) => {
+  if (isSystemLocked()) {
+    return lockdownErrorResponse(res);
+  }
+
   const requestStartTime = Date.now();
   console.log('=== LOGIN ROUTE HIT ===');
   console.log('Time:', new Date().toISOString());

@@ -8,90 +8,104 @@ export const AuthContext = createContext();
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [systemLocked, setSystemLocked] = useState(false);
+  const [lockdownInfo, setLockdownInfo] = useState(null);
+
+  const applyLockdown = (info) => {
+    setSystemLocked(true);
+    setLockdownInfo(info || null);
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    setUser(null);
+    disconnectSocket();
+  };
 
   useEffect(() => {
     let isMounted = true;
-    
-    // Check if user is logged in
-    const token = localStorage.getItem('token');
-    const savedUser = localStorage.getItem('user');
 
-    if (token && savedUser) {
+    const bootstrap = async () => {
       try {
-        const parsedUser = JSON.parse(savedUser);
-        if (isMounted) {
-          setUser(parsedUser);
+        const statusRes = await api.get('/system/status');
+        if (!isMounted) return;
+        if (statusRes.data?.locked) {
+          applyLockdown(statusRes.data);
+          setLoading(false);
+          return;
         }
-        
-        // Verify token is still valid with timeout
-        const timeoutId = setTimeout(() => {
+        setSystemLocked(false);
+        setLockdownInfo(null);
+      } catch (_err) {
+        if (isMounted) setLoading(false);
+        return;
+      }
+
+      const token = localStorage.getItem('token');
+      const savedUser = localStorage.getItem('user');
+
+      if (token && savedUser) {
+        try {
+          const parsedUser = JSON.parse(savedUser);
+          if (isMounted) setUser(parsedUser);
+
+          const timeoutId = setTimeout(() => {
+            if (isMounted) {
+              console.warn('Auth check timeout - proceeding with cached user');
+              setLoading(false);
+            }
+          }, 3000);
+
+          api.get('/auth/me')
+            .then((response) => {
+              clearTimeout(timeoutId);
+              if (isMounted && response.data?.user) {
+                const userData = response.data.user;
+                const normalizeImageUrl = (url) => {
+                  if (!url) return '';
+                  if (url.startsWith('http://') || url.startsWith('https://')) return url;
+                  return normalizeUrl(url);
+                };
+                const normalizedUserData = {
+                  ...userData,
+                  profile_image: normalizeImageUrl(userData.profile_image)
+                };
+                setUser(normalizedUserData);
+                localStorage.setItem('user', JSON.stringify(normalizedUserData));
+                try {
+                  initSocket(userData.id);
+                } catch (socketError) {
+                  console.warn('Socket initialization failed:', socketError);
+                }
+              }
+              if (isMounted) setLoading(false);
+            })
+            .catch((error) => {
+              clearTimeout(timeoutId);
+              if (error.response?.status === 503 && error.response?.data?.code === 'SYSTEM_LOCKDOWN') {
+                if (isMounted) applyLockdown(error.response.data.lockdown);
+              } else if (isMounted) {
+                localStorage.removeItem('token');
+                localStorage.removeItem('user');
+                setUser(null);
+                disconnectSocket();
+              }
+              if (isMounted) setLoading(false);
+            });
+        } catch (error) {
+          console.error('Error parsing user data:', error);
           if (isMounted) {
-            console.warn('Auth check timeout - proceeding with cached user');
+            localStorage.removeItem('token');
+            localStorage.removeItem('user');
+            disconnectSocket();
             setLoading(false);
           }
-        }, 3000); // 3 second timeout
-
-        api.get('/auth/me')
-          .then(response => {
-            clearTimeout(timeoutId);
-            if (isMounted && response.data?.user) {
-              const userData = response.data.user;
-              
-              // Normalize profile_image URL if it exists
-              const normalizeImageUrl = (url) => {
-                if (!url) return '';
-                // If already a full URL, return as is
-                if (url.startsWith('http://') || url.startsWith('https://')) {
-                  return url;
-                }
-                // Use centralized URL utility
-                return normalizeUrl(url);
-              };
-              
-              const normalizedUserData = {
-                ...userData,
-                profile_image: normalizeImageUrl(userData.profile_image)
-              };
-              
-              setUser(normalizedUserData);
-              localStorage.setItem('user', JSON.stringify(normalizedUserData));
-              // Initialize WebSocket connection
-              try {
-                initSocket(userData.id);
-              } catch (socketError) {
-                console.warn('Socket initialization failed:', socketError);
-              }
-              setLoading(false);
-            } else if (isMounted) {
-              setLoading(false);
-            }
-          })
-          .catch((error) => {
-            clearTimeout(timeoutId);
-            console.warn('Auth verification failed:', error.message);
-            // Token invalid, clear storage
-            if (isMounted) {
-              localStorage.removeItem('token');
-              localStorage.removeItem('user');
-              setUser(null);
-              disconnectSocket();
-              setLoading(false);
-            }
-          });
-      } catch (error) {
-        console.error('Error parsing user data:', error);
-        if (isMounted) {
-          localStorage.removeItem('token');
-          localStorage.removeItem('user');
-          setLoading(false);
-          disconnectSocket();
         }
+      } else if (isMounted) {
+        setLoading(false);
       }
-    } else {
-      setLoading(false);
-    }
+    };
 
-    // Cleanup on unmount
+    bootstrap();
+
     return () => {
       isMounted = false;
       disconnectSocket();
@@ -172,6 +186,10 @@ export const AuthProvider = ({ children }) => {
         } else {
           errorMessage = errorData || 'Account is deactivated';
         }
+      } else if (error.response?.status === 503 && error.response?.data?.code === 'SYSTEM_LOCKDOWN') {
+        applyLockdown(error.response.data.lockdown);
+        errorMessage = error.response.data?.error || 'System is temporarily offline.';
+        return { success: false, error: errorMessage, lockdown: error.response.data.lockdown };
       } else if (error.response?.data?.error) {
         errorMessage = error.response.data.error;
       } else if (error.message) {
@@ -262,7 +280,7 @@ export const AuthProvider = ({ children }) => {
   }, [user]);
 
   return (
-    <AuthContext.Provider value={{ user, login, logout, updateUser, loading }}>
+    <AuthContext.Provider value={{ user, login, logout, updateUser, loading, systemLocked, lockdownInfo }}>
       {children}
     </AuthContext.Provider>
   );

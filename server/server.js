@@ -122,8 +122,11 @@ app.use(express.urlencoded({
 // System audit: optional JWT user id + per-request HTTP log (ICT head reviews via /api/audit-logs)
 const attachAuditUserFromToken = require('./middleware/attachAuditUserFromToken');
 const auditHttpLogger = require('./middleware/auditHttpLogger');
+const { systemLockdownMiddleware } = require('./middleware/systemLockdown');
+const { logLockdownStateOnStartup } = require('./utils/systemLockdown');
 app.use('/api', attachAuditUserFromToken);
 app.use('/api', auditHttpLogger);
+app.use('/api', systemLockdownMiddleware);
 
 // Keep uploads on a persistent path in production (for Render: /var/data/uploads)
 const uploadsRoot = path.resolve(process.env.UPLOADS_DIR || path.join(__dirname, '../uploads'));
@@ -2476,6 +2479,8 @@ async function initializeDatabase() {
 // Lightweight health-check — wakes Render from cold-start, no auth needed
 app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
 
+app.use('/api/system', require('./routes/system'));
+
 // Routes
 app.use('/api/audit-logs', require('./routes/auditLogs'));
 app.use('/api/auth', require('./routes/auth'));
@@ -2729,6 +2734,8 @@ async function startServer() {
     // (e.g. Orange Liberia) don't get their connections prematurely closed.
     server.keepAliveTimeout = 120000;   // 120s (default 5s is too aggressive)
     server.headersTimeout = 125000;     // must be > keepAliveTimeout
+
+    logLockdownStateOnStartup();
 
     server.listen(PORT, host, () => {
       console.log(`Server running on ${host}:${PORT}`);

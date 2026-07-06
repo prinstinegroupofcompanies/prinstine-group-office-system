@@ -59,6 +59,18 @@ api.interceptors.response.use(
     const isLoginPage = window.location.pathname.includes('/login');
     const isAuthRequest = config.url?.includes('/auth/login') || config.url?.includes('/auth/me');
 
+    if (error.response?.status === 503 && error.response?.data?.code === 'SYSTEM_LOCKDOWN') {
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+      if (!window.location.pathname.includes('/login') &&
+          !window.location.pathname.includes('/verify-certificate') &&
+          !window.location.pathname.includes('/submit-claim') &&
+          !window.location.pathname.includes('/certificates/verify')) {
+        window.location.href = '/login';
+      }
+      return Promise.reject(error);
+    }
+
     if (error.response?.status === 401 && !isLoginPage && !isAuthRequest) {
       localStorage.removeItem('token');
       localStorage.removeItem('user');

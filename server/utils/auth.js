@@ -1,6 +1,7 @@
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcrypt');
 require('dotenv').config();
+const { assertSystemAccessEnabled } = require('./systemLockdown');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'default-secret-change-in-production';
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '24h';
@@ -49,6 +50,8 @@ function verifyToken(token) {
  * Middleware to authenticate requests
  */
 function authenticateToken(req, res, next) {
+  if (!assertSystemAccessEnabled(res)) return;
+
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
 
