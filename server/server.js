@@ -1503,7 +1503,9 @@ async function initializeDatabase() {
         // Create admin user if it doesn't exist
         console.log('Creating admin user...');
         const bcrypt = require('bcrypt');
-        const passwordHash = await bcrypt.hash('Admin@123', 10);
+        const configuredAdminPassword = process.env.ADMIN_DEFAULT_PASSWORD;
+        const adminPassword = configuredAdminPassword || 'Admin@123';
+        const passwordHash = await bcrypt.hash(adminPassword, 10);
         
         try {
           const result = await db.run(

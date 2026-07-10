@@ -39,6 +39,8 @@ services:
         value: "false"
       - key: ENCRYPTION_KEY
         sync: false
+      - key: ADMIN_DEFAULT_PASSWORD
+        sync: false
       - key: EMAIL_HOST
         sync: false
       - key: EMAIL_PORT

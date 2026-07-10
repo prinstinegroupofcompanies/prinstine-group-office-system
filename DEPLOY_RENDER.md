@@ -31,6 +31,8 @@ This repo includes `render.yaml` with:
 3. Set environment variables on the backend service:
    - `JWT_SECRET` — long random string
    - `ENCRYPTION_KEY` — 32+ characters
+   - `ADMIN_DEFAULT_PASSWORD` — strong password for the initial admin account
+   - `SYSTEM_ACCESS_ENABLED=true` — enable logins on the deployed backend
    - `FRONTEND_URL` — your Vercel domain (e.g. `https://prinstinemanagementsystem.com`)
    - `EMAIL_*` — if you use email features
    - `DATABASE_URL` — if using PostgreSQL (optional; SQLite uses disk path above)
@@ -80,12 +82,12 @@ Redeploy after changing.
 
 ## 6) Expected startup logs (Render)
 
-| Message | Meaning |
-|---------|---------|
-| `Using SQLite database` | Normal if `DATABASE_URL` is not set; data lives on the disk at `DB_PATH`. |
-| `Email configuration not found` | Optional; set `EMAIL_*` env vars to enable mail. |
-| `API-only mode: no client/build` | Normal — frontend is on Vercel, not bundled with the API service. |
-| `Your service is live` | Backend is healthy; test `/api/health`. |
+| Message                          | Meaning                                                                   |
+| -------------------------------- | ------------------------------------------------------------------------- |
+| `Using SQLite database`          | Normal if `DATABASE_URL` is not set; data lives on the disk at `DB_PATH`. |
+| `Email configuration not found`  | Optional; set `EMAIL_*` env vars to enable mail.                          |
+| `API-only mode: no client/build` | Normal — frontend is on Vercel, not bundled with the API service.         |
+| `Your service is live`           | Backend is healthy; test `/api/health`.                                   |
 
 To use **PostgreSQL** instead of SQLite, add Render’s `DATABASE_URL` to the backend service and redeploy.
 
