@@ -1520,6 +1520,26 @@ async function initializeDatabase() {
         } catch (createError) {
           console.error('Error creating admin user:', createError.message);
         }
+      } else if (process.env.ADMIN_DEFAULT_PASSWORD) {
+        const bcrypt = require('bcrypt');
+        const configuredAdminPassword = process.env.ADMIN_DEFAULT_PASSWORD;
+        let passwordMatches = false;
+
+        try {
+          passwordMatches = await bcrypt.compare(configuredAdminPassword, adminUser.password_hash);
+        } catch (compareError) {
+          console.warn('Could not compare admin password hash:', compareError.message);
+        }
+
+        if (!passwordMatches) {
+          try {
+            const newHash = await bcrypt.hash(configuredAdminPassword, 10);
+            await db.run('UPDATE users SET password_hash = ? WHERE id = ?', [newHash, adminUser.id]);
+            console.log('✓ Admin password reset from ADMIN_DEFAULT_PASSWORD');
+          } catch (updateError) {
+            console.error('Error updating admin password from ADMIN_DEFAULT_PASSWORD:', updateError.message);
+          }
+        }
       }
       
       if (adminUser) {

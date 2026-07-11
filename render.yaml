@@ -40,7 +40,7 @@ services:
       - key: ENCRYPTION_KEY
         sync: false
       - key: ADMIN_DEFAULT_PASSWORD
-        sync: false
+        value: Prinstine@2026!Secure#9
       - key: EMAIL_HOST
         sync: false
       - key: EMAIL_PORT
