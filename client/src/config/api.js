@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { getApiBaseUrl } from '../utils/apiUrl';
+import { getApiBaseUrl, getDirectApiUrl } from '../utils/apiUrl';
 
 const API_BASE_URL = getApiBaseUrl();
 
@@ -15,6 +15,16 @@ const isRetryable = (error) => {
     error.message?.includes('timeout') ||
     error.message?.includes('Network Error') ||
     (error.response && error.response.status >= 500)
+  );
+};
+
+const shouldFallBackToDirectApi = (error) => {
+  const status = error.response?.status;
+  const config = error.config || {};
+  return (
+    !config.__directFallbackAttempted &&
+    (status === 502 || status === 503) &&
+    config.baseURL === '/api'
   );
 };
 
@@ -58,6 +68,13 @@ api.interceptors.response.use(
 
     const isLoginPage = window.location.pathname.includes('/login');
     const isAuthRequest = config.url?.includes('/auth/login') || config.url?.includes('/auth/me');
+
+    if (shouldFallBackToDirectApi(error)) {
+      config.__directFallbackAttempted = true;
+      config.baseURL = getDirectApiUrl();
+      console.warn('Proxy 502/503 detected, retrying directly against backend host:', config.baseURL);
+      return api(config);
+    }
 
     if (error.response?.status === 503 && error.response?.data?.code === 'SYSTEM_LOCKDOWN') {
       localStorage.removeItem('token');

@@ -33,6 +33,19 @@ export const getApiBaseUrl = () => {
   return 'http://localhost:3006/api';
 };
 
+export const getDirectApiUrl = () => {
+  if (process.env.NODE_ENV === 'production') {
+    return `${RENDER_BACKEND}/api`;
+  }
+  const raw = (process.env.REACT_APP_API_URL || '').trim();
+  if (raw) {
+    let base = trimTrailingSlashes(raw);
+    if (!/\/api$/i.test(base)) base = `${base}/api`;
+    return base;
+  }
+  return 'http://localhost:3006/api';
+};
+
 /**
  * Socket.IO connects directly to Render (WebSocket can't go through Vercel rewrites).
  */
